@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem \"e:\\\\projects\\\\Push STK\" -Recurse -File | Where-Object {$_.Name -ne '.gitkeep'} | Select-Object @{N='Path';E={$_.FullName.Replace\\('e:\\\\projects\\\\Push STK\\\\',''\\)}} | Format-Table -AutoSize)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "PowerShell(Get-Process -Name \"apache_start\",\"httpd\",\"mysqld\" -ErrorAction SilentlyContinue)",
+      "Read(//c/xampp/htdocs/**)",
+      "Read(//c/xampp/apache/logs/**)",
+      "Bash(grep -n \"DocumentRoot\\\\|Require\\\\|AllowOverride\" \"C:/xampp/apache/conf/httpd.conf\" | head -20)",
+      "Read(//c/xampp/apache/conf/**)",
+      "PowerShell(& \"C:\\\\xampp\\\\apache\\\\bin\\\\httpd.exe\" -t 2>&1)",
+      "PowerShell(& \"C:\\\\xampp\\\\mysql\\\\bin\\\\mysql.exe\" -u root -e \"SELECT id,name,email,role FROM mpesa_bulk_stk.admin_users;\" 2>&1)",
+      "PowerShell(Start-Process \"http://localhost/pushstk/index.php\")",
+      "PowerShell(Start-Process \"http://localhost/pushstk/test_push.php\")",
+      "Bash(\"C:/xampp/php/php.exe\" -l customers/groups.php)",
+      "Bash(C:/xampp/mysql/bin/mysql.exe -u root mpesa_bulk_stk -e ' *)",
+      "Bash(\"C:/ngrok/ngrok.exe\" version *)",
+      "Bash(\"C:/ngrok/ngrok.exe\" config *)",
+      "Bash(ls \"C:/Users/Elitebook 820G3/AppData/Local/ngrok/\" 2>&1)",
+      "Read(//c/Users/Elitebook 820G3/AppData/Local/**)",
+      "PowerShell(php -r \"echo password_hash\\('Admin@2025', PASSWORD_BCRYPT, ['cost' => 12]\\);\")",
+      "PowerShell(git config --global user.name)",
+      "PowerShell(git config --global user.email)"
+    ],
+    "additionalDirectories": [
+      "C:\\xampp\\apache\\conf"
+    ]
+  }
+}

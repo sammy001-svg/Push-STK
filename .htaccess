@@ -1,0 +1,76 @@
+Options -Indexes
+ServerSignature Off
+
+# ── Force HTTPS ───────────────────────────────────────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} off
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# ── Block direct access to back-end directories ───────────────
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(config|includes|templates|database|storage/imports)(/|$) - [F,L]
+</IfModule>
+
+# ── Block sensitive file types ────────────────────────────────
+<FilesMatch "\.(sql|log|sh|env|example|md|lock|json|gitignore|gitkeep)$">
+  Order Allow,Deny
+  Deny from all
+</FilesMatch>
+
+# ── PHP hardening ─────────────────────────────────────────────
+<IfModule mod_php8.c>
+  php_flag  display_errors     Off
+  php_flag  log_errors         On
+  php_value upload_max_filesize 10M
+  php_value post_max_size       12M
+  php_value max_execution_time  300
+  php_value memory_limit        256M
+  php_value session.cookie_httponly 1
+  php_value session.cookie_secure   1
+  php_value session.use_strict_mode 1
+  php_value session.gc_maxlifetime  7200
+</IfModule>
+<IfModule mod_php.c>
+  php_flag  display_errors     Off
+  php_flag  log_errors         On
+  php_value upload_max_filesize 10M
+  php_value post_max_size       12M
+  php_value max_execution_time  300
+  php_value memory_limit        256M
+  php_value session.cookie_httponly 1
+  php_value session.cookie_secure   1
+  php_value session.use_strict_mode 1
+  php_value session.gc_maxlifetime  7200
+</IfModule>
+
+# ── Security headers ──────────────────────────────────────────
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options  "nosniff"
+  Header always set X-Frame-Options         "SAMEORIGIN"
+  Header always set X-XSS-Protection        "1; mode=block"
+  Header always set Referrer-Policy         "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy      "geolocation=(), microphone=(), camera=()"
+  # Remove PHP version header
+  Header unset X-Powered-By
+</IfModule>
+
+# ── Compression ───────────────────────────────────────────────
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/css application/javascript application/json
+</IfModule>
+
+# ── Cache static assets ───────────────────────────────────────
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css               "access plus 1 week"
+  ExpiresByType application/javascript "access plus 1 week"
+  ExpiresByType image/png              "access plus 1 month"
+  ExpiresByType image/jpeg             "access plus 1 month"
+  ExpiresByType image/gif              "access plus 1 month"
+  ExpiresByType image/svg+xml          "access plus 1 month"
+  ExpiresByType image/x-icon           "access plus 3 months"
+  ExpiresByType font/woff2             "access plus 3 months"
+</IfModule>

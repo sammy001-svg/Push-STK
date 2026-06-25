@@ -1,0 +1,6 @@
+name,phone,email,account_number,group
+John Doe,0712345678,john@example.com,ACC-001,VIP Members
+Jane Smith,0723456789,jane@example.com,ACC-002,Staff
+Peter Otieno,0734567890,,ACC-003,All Customers
+Mary Wanjiku,+254745678901,mary@mail.com,ACC-004,
+Samuel Kamau,254756789012,samuel@mail.com,,Suppliers

@@ -1,0 +1,20 @@
+# Environment / credentials — never commit these
+config/env.php
+
+# Temp import files
+storage/imports/tmp_*.csv
+
+# PHP error logs
+*.log
+error_log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Setup checker — delete from server after use
+setup.php

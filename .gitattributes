@@ -1,0 +1,16 @@
+# Normalize line endings to LF on commit (works correctly on Windows, Linux, macOS)
+* text=auto eol=lf
+
+# Binary files — no line-ending conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
+*.csv text eol=lf
