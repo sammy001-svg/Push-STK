@@ -34,7 +34,7 @@ $flashData    = getFlash();
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
   <!-- Custom CSS -->
-  <link rel="stylesheet" href="<?= APP_URL ?>/assets/css/style.css"/>
+  <link rel="stylesheet" href="<?= APP_URL ?>/assets/css/style.css?v=<?= filemtime(__DIR__ . '/../assets/css/style.css') ?>"/>
 
   <script>window.APP_URL = '<?= APP_URL ?>';</script>
   <?php if (!empty($extraHead)) echo $extraHead; ?>

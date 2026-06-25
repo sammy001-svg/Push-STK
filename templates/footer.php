@@ -6,7 +6,7 @@
 <div class="toast-container" id="toast-container"></div>
 
 <!-- ─── Main JS ──────────────────────────────────────────── -->
-<script src="<?= APP_URL ?>/assets/js/main.js"></script>
+<script src="<?= APP_URL ?>/assets/js/main.js?v=<?= filemtime(__DIR__ . '/../assets/js/main.js') ?>"></script>
 
 <!-- ─── Scheduled-campaign heartbeat ─────────────────────── -->
 <script>
