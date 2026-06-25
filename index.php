@@ -111,11 +111,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </button>
     </form>
 
-    <div style="margin-top:28px;padding-top:22px;border-top:1px solid var(--border);text-align:center">
-      <p style="font-size:12px;color:var(--text-muted)">
-        Default: <code>admin@bulkstk.co.ke</code> / <code>Admin@2024</code>
-      </p>
-    </div>
 
     <div style="margin-top:20px;text-align:center">
       <p style="font-size:12px;color:#94A3B8">
