@@ -419,6 +419,7 @@ require __DIR__ . '/../templates/header.php';
   </div>
 </div>
 
+<?php ob_start(); ?>
 <script>
 const campaignId  = <?= $id ?>;
 const batchDelay  = <?= BATCH_SIZE * 250 + 700 ?>;
@@ -653,5 +654,6 @@ BulkSender.onComplete = function(data) {
 // If campaign was running when page loaded and BulkSender resumes, poller
 // starts automatically via onComplete.
 </script>
+<?php $extraScripts = ob_get_clean(); ?>
 
 <?php require __DIR__ . '/../templates/footer.php'; ?>
