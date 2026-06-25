@@ -408,6 +408,73 @@ require __DIR__ . '/../templates/header.php';
   </div>
 </div>
 
+<!-- ─── Launch Progress Modal ─────────────────────────────── -->
+<div class="modal-backdrop" id="launch-progress-modal" style="display:none;background:rgba(13,43,85,.65);backdrop-filter:blur(3px)">
+  <div class="modal" style="max-width:560px;width:95vw;border-radius:16px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.25)">
+
+    <!-- Header -->
+    <div id="lp-header" style="background:linear-gradient(135deg,#0D2B55 0%,#1a4080 100%);color:#fff;padding:20px 24px;display:flex;align-items:center;gap:14px">
+      <div id="lp-icon" style="font-size:32px;line-height:1;flex-shrink:0">🚀</div>
+      <div style="flex:1;min-width:0">
+        <div id="lp-title" style="font-size:16px;font-weight:800;color:#fff">Sending STK Pushes…</div>
+        <div style="font-size:12px;opacity:.65;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><?= e($campaign['name']) ?></div>
+      </div>
+      <button id="lp-close-btn" onclick="closeLaunchModal()"
+              style="display:none;background:rgba(255,255,255,.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;line-height:1;flex-shrink:0"
+              title="Close">&times;</button>
+    </div>
+
+    <div style="padding:22px 24px">
+
+      <!-- Progress bar -->
+      <div style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span id="lp-label" style="font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:6px">
+            <span class="spinner spinner-sm"></span>Sending STK pushes…
+          </span>
+          <span id="lp-pct" style="font-size:14px;font-weight:800;color:var(--primary)">0%</span>
+        </div>
+        <div style="background:#E5E7EB;border-radius:20px;height:18px;overflow:hidden">
+          <div id="lp-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#00A651,#059669);border-radius:20px;transition:width .5s ease;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;font-weight:700"></div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+        <?php foreach ([
+          ['lp-s-total',   $campaign['total_recipients'], '#0D2B55', '#F8FAFC', '#E2E8F0', 'Total'],
+          ['lp-s-sent',    0,                             '#059669', '#F0FDF4', '#BBF7D0', 'Dispatched'],
+          ['lp-s-pending', $campaign['pending_count'],    '#D97706', '#FFFBEB', '#FDE68A', 'Pending'],
+          ['lp-s-failed',  0,                             '#DC2626', '#FFF1F2', '#FECDD3', 'Failed'],
+        ] as [$elId, $val, $color, $bg, $border, $label]): ?>
+          <div style="text-align:center;padding:10px 6px;background:<?= $bg ?>;border-radius:10px;border:1px solid <?= $border ?>">
+            <div style="font-size:22px;font-weight:800;color:<?= $color ?>" id="<?= $elId ?>"><?= $val ?></div>
+            <div style="font-size:10px;color:#6B7280;margin-top:2px;text-transform:uppercase;letter-spacing:.3px"><?= $label ?></div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+
+      <!-- Live feed -->
+      <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
+        <div style="background:#F8FAFC;padding:8px 14px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;color:#374151;display:flex;align-items:center;gap:6px">
+          <span id="lp-live-dot" style="display:inline-block;width:8px;height:8px;background:#10B981;border-radius:50%;animation:pulse 1.5s infinite"></span>
+          Live Activity
+        </div>
+        <div id="lp-feed" style="max-height:180px;overflow-y:auto">
+          <div id="lp-feed-empty" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px">
+            <i class="fas fa-satellite-dish" style="font-size:20px;display:block;margin-bottom:8px;opacity:.4"></i>
+            Waiting for sends…
+          </div>
+        </div>
+      </div>
+
+      <!-- Completion banner (hidden until done) -->
+      <div id="lp-done-banner" style="display:none;margin-top:16px;padding:16px;border-radius:10px;text-align:center"></div>
+
+    </div>
+  </div>
+</div>
+
 <!-- ─── Launch Issues Modal ───────────────────────────────── -->
 <div class="modal-backdrop" id="launch-issue-modal">
   <div class="modal" style="max-width:520px">
@@ -474,8 +541,8 @@ async function startCampaign() {
 
     // ── Start sending ──────────────────────────────────────
     if (btn) btn.style.display = 'none';
+    openLaunchModal();
     BulkSender.start();
-    Toast.success('Campaign launched! STK prompts are being sent.', 'Launched');
 
   } catch(e) {
     console.error('Launch error:', e);
@@ -526,7 +593,7 @@ async function pauseCampaign() {
   if (res.success) Toast.warning('Campaign paused.', 'Paused');
 }
 
-// Override BulkSender progress to also update stat-sent
+// Override BulkSender progress to also update stat-sent + launch modal
 const origUpdate = BulkSender.updateProgress.bind(BulkSender);
 BulkSender.updateProgress = function(data) {
   origUpdate(data);
@@ -538,12 +605,122 @@ BulkSender.updateProgress = function(data) {
   if (el3) el3.textContent = (data.failed_count || 0).toLocaleString();
   const el4 = document.getElementById('stat-sent-pending');
   if (el4) el4.textContent = (data.pending_count || 0).toLocaleString();
+  updateLaunchModal(data);
 };
 
 // Add blinking animation for live status
 const style = document.createElement('style');
 style.textContent = '@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}';
 document.head.appendChild(style);
+
+// ── Launch Progress Modal ─────────────────────────────────────
+
+function openLaunchModal() {
+  const modal = document.getElementById('launch-progress-modal');
+  if (!modal) return;
+  // Reset to initial state
+  _lpSet('lp-bar',      el => { el.style.width = '0%'; el.textContent = ''; });
+  _lpText('lp-pct',     '0%');
+  _lpText('lp-s-sent',  '0');
+  _lpText('lp-s-failed','0');
+  _lpText('lp-s-pending', document.getElementById('stat-pending')?.textContent || '?');
+  _lpText('lp-title',   'Sending STK Pushes…');
+  _lpSet('lp-icon',     el => el.textContent = '🚀');
+  _lpSet('lp-close-btn',el => el.style.display = 'none');
+  _lpSet('lp-done-banner', el => el.style.display = 'none');
+  _lpSet('lp-label',    el => el.innerHTML = '<span class="spinner spinner-sm"></span>&nbsp;Sending STK pushes…');
+  _lpSet('lp-live-dot', el => el.style.animation = 'pulse 1.5s infinite');
+  const feed = document.getElementById('lp-feed');
+  if (feed) feed.innerHTML = '<div id="lp-feed-empty" style="text-align:center;padding:28px;color:var(--text-muted);font-size:13px"><i class="fas fa-satellite-dish" style="font-size:20px;display:block;margin-bottom:8px;opacity:.4"></i>Waiting for sends…</div>';
+  modal.style.display = 'flex';
+}
+
+function updateLaunchModal(data) {
+  const total      = data.total     || 0;
+  const sentCount  = data.sent_count  || 0;
+  const failed     = data.failed_count || 0;
+  const pending    = data.pending_count || 0;
+  const dispatched = Math.max(0, sentCount - failed);
+  const pct        = total > 0 ? Math.round((sentCount / total) * 100) : 0;
+
+  _lpSet('lp-bar', el => {
+    el.style.width = pct + '%';
+    el.textContent = pct > 10 ? pct + '%' : '';
+  });
+  _lpText('lp-pct',      pct + '%');
+  _lpText('lp-s-sent',   dispatched.toLocaleString());
+  _lpText('lp-s-failed', failed.toLocaleString());
+  _lpText('lp-s-pending',pending.toLocaleString());
+
+  if (!data.recent || !data.recent.length) return;
+  const emptyEl = document.getElementById('lp-feed-empty');
+  if (emptyEl) emptyEl.remove();
+  const feed = document.getElementById('lp-feed');
+  if (!feed) return;
+  data.recent.forEach(tx => {
+    const color  = tx.status === 'success' ? '#059669' : tx.status === 'failed' ? '#DC2626' : '#D97706';
+    const icon   = tx.status === 'success' ? '✅' : tx.status === 'failed' ? '❌' : '📤';
+    const item   = document.createElement('div');
+    item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid #F3F4F6';
+    item.innerHTML = `
+      <div style="display:flex;align-items:center;gap:9px">
+        <div style="width:30px;height:30px;background:#E5E7EB;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#374151;flex-shrink:0">${(tx.name||tx.phone)[0].toUpperCase()}</div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#111827">${tx.name||'Unknown'}</div>
+          <div style="font-size:11px;color:#6B7280">${tx.phone}</div>
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;margin-left:12px">
+        <div style="font-size:12px;font-weight:600;color:${color}">${icon} ${tx.status.charAt(0).toUpperCase()+tx.status.slice(1)}</div>
+        <div style="font-size:11px;color:#6B7280">KES ${Number(tx.amount).toLocaleString()}</div>
+      </div>`;
+    feed.insertBefore(item, feed.firstChild);
+  });
+}
+
+function completeLaunchModal(data) {
+  const dispatched = Math.max(0, (data.sent_count||0) - (data.failed_count||0));
+  const total      = data.total || 0;
+  const failed     = data.failed_count || 0;
+  const allFailed  = dispatched === 0;
+
+  _lpText('lp-title', allFailed ? 'Campaign Finished with Errors' : 'STK Pushes Dispatched!');
+  _lpSet('lp-icon',      el => el.textContent = allFailed ? '❌' : '✅');
+  _lpSet('lp-close-btn', el => el.style.display = 'block');
+  _lpSet('lp-live-dot',  el => { el.style.animation = 'none'; el.style.background = '#9CA3AF'; });
+  _lpSet('lp-label', el => {
+    el.innerHTML = allFailed
+      ? '<span style="color:#DC2626">❌ All pushes failed</span>'
+      : `<span style="color:#059669">✅ ${dispatched} of ${total} dispatched — awaiting confirmations</span>`;
+  });
+
+  const banner = document.getElementById('lp-done-banner');
+  if (!banner) return;
+  if (allFailed) {
+    banner.style.cssText = 'display:block;margin-top:16px;padding:16px;border-radius:10px;background:#FFF1F2;border:1px solid #FECDD3;text-align:center';
+    banner.innerHTML = `<div style="font-size:15px;font-weight:700;color:#991B1B;margin-bottom:6px">All ${failed} push${failed!==1?'es':''} failed</div><div style="font-size:13px;color:#B91C1C">Check the error message above, then use the Recovery Centre to retry.</div>`;
+  } else {
+    banner.style.cssText = 'display:block;margin-top:16px;padding:16px;border-radius:10px;background:#F0FDF4;border:1px solid #BBF7D0;text-align:center';
+    banner.innerHTML = `
+      <div style="font-size:15px;font-weight:700;color:#065F46;margin-bottom:6px">🎉 ${dispatched} STK push${dispatched!==1?'es':''} dispatched</div>
+      <div style="font-size:13px;color:#047857;margin-bottom:${failed>0?12:0}px">Safaricom is processing each payment. Confirmations update automatically in the table below.</div>
+      ${failed>0?`<div style="font-size:12px;color:#B45309;background:#FFFBEB;padding:8px 12px;border-radius:8px;display:inline-block">⚠️ ${failed} push${failed!==1?'es':''} failed — use Recovery Centre to retry</div>`:''}`;
+  }
+}
+
+function closeLaunchModal() {
+  const modal = document.getElementById('launch-progress-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function _lpText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function _lpSet(id, fn) {
+  const el = document.getElementById(id);
+  if (el) fn(el);
+}
 
 // ── Retry Failed ─────────────────────────────────────────────
 async function retryFailed(statuses = ['failed', 'timeout', 'cancelled']) {
@@ -643,10 +820,11 @@ function startCallbackPoller() {
   }, 5000);
 }
 
-// Hook into BulkSender.onComplete to start the callback poller
+// Hook into BulkSender.onComplete to show modal completion + start poller
 const origComplete = BulkSender.onComplete.bind(BulkSender);
 BulkSender.onComplete = function(data) {
   origComplete(data);
+  completeLaunchModal(data);
   startCallbackPoller();
 };
 

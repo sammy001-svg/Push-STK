@@ -181,10 +181,13 @@ const BulkSender = {
         this._shownFirstError = false;
         this.running = false;
         this.updateUI('completed');
-        const msg = res.success_count > 0
-          ? `Campaign complete — ${res.success_count} push${res.success_count !== 1 ? 'es' : ''} sent!`
+        // success_count is 0 at dispatch time — callbacks haven't returned yet.
+        // Use dispatched (sent - failed) as the success indicator.
+        const dispatched = (res.sent_count || 0) - (res.failed_count || 0);
+        const msg = dispatched > 0
+          ? `${dispatched} STK push${dispatched !== 1 ? 'es' : ''} dispatched — awaiting payment confirmations.`
           : 'All pushes failed — check the M-Pesa error shown above.';
-        res.success_count > 0 ? Toast.success(msg, 'Done') : Toast.show(msg, 'error', 'Done', 0);
+        dispatched > 0 ? Toast.success(msg, 'Done') : Toast.show(msg, 'error', 'Done', 0);
         this.onComplete(res);
         return;
       }
