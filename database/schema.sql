@@ -2,9 +2,13 @@
 -- BulkSTK Pro - Database Schema
 -- M-Pesa Bulk STK Push Dashboard
 -- ============================================================
-
-CREATE DATABASE IF NOT EXISTS mpesa_bulk_stk CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE mpesa_bulk_stk;
+-- cPanel / Shared Hosting:
+--   1. Create the database in cPanel → MySQL Databases
+--      (it will be named like: cpanelusername_mpesa)
+--   2. Select that database in phpMyAdmin BEFORE importing this file
+--   3. Do NOT run this file with CREATE DATABASE / USE — they are
+--      intentionally removed for shared-hosting compatibility.
+-- ============================================================
 
 -- ============================================================
 -- Admin Users
