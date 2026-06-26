@@ -151,7 +151,7 @@ require __DIR__ . '/templates/header.php';
   <div class="card">
     <div class="card-header">
       <div class="card-title"><i class="fas fa-chart-area"></i> Send Trend</div>
-      <div style="display:flex;gap:14px;font-size:12px;align-items:center">
+      <div style="display:flex;gap:14px;font-size:12px;align-items:center;flex-wrap:wrap">
         <span style="display:flex;align-items:center;gap:5px">
           <span style="width:10px;height:10px;border-radius:2px;background:#00A651;display:inline-block"></span> Success
         </span>
@@ -160,6 +160,11 @@ require __DIR__ . '/templates/header.php';
         </span>
         <span style="display:flex;align-items:center;gap:5px">
           <span style="width:10px;height:10px;border-radius:2px;background:#F59E0B;display:inline-block"></span> Pending
+        </span>
+        <span style="display:flex;align-items:center;gap:5px">
+          <span style="width:22px;height:2px;background:#6366F1;display:inline-block;border-radius:2px"></span>
+          <span style="width:6px;height:6px;border-radius:50%;background:#6366F1;display:inline-block;margin-left:-4px"></span>
+          Rate %
         </span>
       </div>
     </div>
@@ -499,6 +504,12 @@ function buildCharts(chart) {
   const failed  = chart.failed;
   const pending = chart.pending;
 
+  // Compute daily success rate; null when no data to avoid a misleading 0% point
+  const succRate = labels.map((_, i) => {
+    const tot = (success[i] || 0) + (failed[i] || 0) + (pending[i] || 0);
+    return tot > 0 ? Math.round((success[i] || 0) / tot * 1000) / 10 : null;
+  });
+
   if (txChart) txChart.destroy();
   const ctx = document.getElementById('txChart').getContext('2d');
   txChart = new Chart(ctx, {
@@ -506,9 +517,24 @@ function buildCharts(chart) {
     data: {
       labels,
       datasets: [
-        { label:'Success', data:success, backgroundColor:'rgba(0,166,81,0.85)',   borderRadius:4, borderSkipped:false },
-        { label:'Failed',  data:failed,  backgroundColor:'rgba(220,38,38,0.75)',  borderRadius:4, borderSkipped:false },
-        { label:'Pending', data:pending, backgroundColor:'rgba(245,158,11,0.65)', borderRadius:4, borderSkipped:false },
+        { label:'Success', data:success, backgroundColor:'rgba(0,166,81,0.85)',   borderRadius:4, borderSkipped:false, yAxisID:'count' },
+        { label:'Failed',  data:failed,  backgroundColor:'rgba(220,38,38,0.75)',  borderRadius:4, borderSkipped:false, yAxisID:'count' },
+        { label:'Pending', data:pending, backgroundColor:'rgba(245,158,11,0.65)', borderRadius:4, borderSkipped:false, yAxisID:'count' },
+        {
+          label: 'Success Rate %',
+          data: succRate,
+          type: 'line',
+          yAxisID: 'rate',
+          borderColor: '#6366F1',
+          backgroundColor: 'rgba(99,102,241,0.08)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          fill: true,
+          tension: 0.35,
+          spanGaps: true,
+          order: 0,
+        },
       ]
     },
     options: {
@@ -516,7 +542,17 @@ function buildCharts(chart) {
       plugins:{ legend:{ display:false } },
       scales:{
         x:{ stacked:true, grid:{ display:false }, ticks:{ font:{ size:11 }, maxRotation:45 } },
-        y:{ stacked:true, grid:{ color:'#F1F5F9' }, ticks:{ font:{ size:11 } }, beginAtZero:true }
+        count:{ stacked:true, grid:{ color:'#F1F5F9' }, ticks:{ font:{ size:11 } }, beginAtZero:true, position:'left' },
+        rate:{
+          position: 'right',
+          beginAtZero: true,
+          max: 100,
+          grid: { drawOnChartArea: false },
+          ticks: {
+            font: { size: 10 },
+            callback: v => v + '%',
+          }
+        }
       }
     }
   });

@@ -8,8 +8,9 @@ require_once __DIR__ . '/../includes/Mpesa.php';
 Auth::start();
 Auth::requireLogin();
 
-$importResult = null;
-$errors = [];
+$importResult       = null;
+$errors             = [];
+$errorDownloadToken = null;
 
 // ── Step 2: Confirm and execute import ──────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm') {
@@ -116,6 +117,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
 
                         $importResult = compact('imported', 'skipped', 'updated', 'errorCount', 'origName');
                         $importResult['parse_errors'] = $parsed['errors'];
+                        $importResult['error_rows']   = $parsed['error_rows'] ?? [];
+
+                        // Write downloadable CSV of failed rows
+                        if (!empty($parsed['error_rows'])) {
+                            $errToken    = bin2hex(random_bytes(16));
+                            $errFilePath = __DIR__ . '/../storage/imports/errors_' . $errToken . '.csv';
+                            $ef = fopen($errFilePath, 'w');
+                            if ($ef) {
+                                fputcsv($ef, ['Row #', 'Name', 'Phone', 'Email', 'Account No.', 'Group', 'Error']);
+                                foreach ($parsed['error_rows'] as $eRow) {
+                                    fputcsv($ef, [
+                                        $eRow['_row']            ?? '',
+                                        $eRow['name']            ?? '',
+                                        $eRow['phone']           ?? '',
+                                        $eRow['email']           ?? '',
+                                        $eRow['account_number']  ?? '',
+                                        $eRow['group']           ?? '',
+                                        $eRow['_error']          ?? '',
+                                    ]);
+                                }
+                                fclose($ef);
+                                $_SESSION['error_download_token'] = $errToken;
+                                $_SESSION['error_download_file']  = $errFilePath;
+                                $errorDownloadToken = $errToken;
+                            }
+                        }
 
                     } catch (Throwable $e) {
                         Database::rollback();
@@ -178,17 +205,40 @@ require __DIR__ . '/../templates/header.php';
         </div>
         <?php endif; ?>
       </div>
-      <?php if (!empty($importResult['parse_errors'])): ?>
-        <details style="margin-top:12px">
-          <summary style="cursor:pointer;font-size:13px;color:#92400E">
-            <?= count($importResult['parse_errors']) ?> rows skipped due to errors (click to expand)
-          </summary>
-          <ul style="margin-top:8px;padding-left:18px;font-size:12px;color:#92400E">
-            <?php foreach (array_slice($importResult['parse_errors'], 0, 15) as $err): ?>
-              <li><?= e($err) ?></li>
-            <?php endforeach; ?>
-          </ul>
-        </details>
+      <?php if (!empty($importResult['error_rows'])): ?>
+        <div style="margin-top:14px">
+          <div style="font-size:13px;font-weight:700;color:#92400E;margin-bottom:6px">
+            <i class="fas fa-exclamation-triangle"></i>
+            <?= number_format(count($importResult['error_rows'])) ?> rows skipped — fix and re-import:
+          </div>
+          <div style="max-height:190px;overflow-y:auto;border-radius:6px;border:1px solid #FDE68A">
+            <table style="width:100%;font-size:12px;border-collapse:collapse">
+              <thead><tr style="background:#FFFBEB;position:sticky;top:0">
+                <th style="padding:5px 8px;text-align:left">Row</th>
+                <th style="padding:5px 8px;text-align:left">Name</th>
+                <th style="padding:5px 8px;text-align:left">Phone</th>
+                <th style="padding:5px 8px;text-align:left;color:#DC2626">Error</th>
+              </tr></thead>
+              <tbody>
+              <?php foreach (array_slice($importResult['error_rows'], 0, 50) as $er): ?>
+                <tr>
+                  <td style="padding:4px 8px;font-weight:700;color:#92400E">#<?= $er['_row'] ?></td>
+                  <td style="padding:4px 8px"><?= e($er['name'] ?? '—') ?></td>
+                  <td style="padding:4px 8px;font-family:monospace"><?= e($er['phone'] ?? '—') ?></td>
+                  <td style="padding:4px 8px;color:#DC2626"><?= e($er['_error'] ?? '') ?></td>
+                </tr>
+              <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+          <?php if (!empty($errorDownloadToken)): ?>
+            <a href="<?= APP_URL ?>/api/download_import_errors.php?token=<?= urlencode($errorDownloadToken) ?>"
+               class="btn btn-light btn-sm" style="margin-top:10px">
+              <i class="fas fa-download"></i>
+              Download All Failed Rows (<?= number_format(count($importResult['error_rows'])) ?>)
+            </a>
+          <?php endif; ?>
+        </div>
       <?php endif; ?>
       <div style="margin-top:14px;display:flex;gap:10px">
         <a href="<?= APP_URL ?>/customers/index.php" class="btn btn-secondary btn-sm">
@@ -519,6 +569,12 @@ function uploadFile(file) {
   });
 }
 
+// ── Phone format validation (client-side) ─────────────────
+function isValidKenyanPhone(phone) {
+  phone = String(phone).replace(/[\s\-\(\)\+]/g, '');
+  return /^(254|0)(7[0-9]{8}|1[01][0-9]{7})$/.test(phone);
+}
+
 // ── Render step 2 (mapping) ────────────────────────────────
 function renderStep2(data) {
   document.getElementById('step2-filename').textContent = data.filename || '';
@@ -553,20 +609,37 @@ function renderStep2(data) {
     grid.appendChild(div);
   });
 
-  // Duplicate banner
-  const dupDiv = document.getElementById('duplicate-info');
-  if (data.duplicate_count > 0) {
-    dupDiv.style.display = 'block';
-    dupDiv.innerHTML = `<div class="alert alert-warning" style="font-size:13px">
-      <i class="fas fa-exclamation-triangle"></i>
-      <div><strong>${data.duplicate_count.toLocaleString()} phone number(s)</strong> already exist in your customers list.
-      They will be skipped unless "Update existing" is checked.</div>
-    </div>`;
-  } else {
-    dupDiv.style.display = 'none';
-  }
+  // Validation summary banner (replaces simple duplicate count)
+  renderValidationBanner(data);
 
   rebuildPreview();
+}
+
+function renderValidationBanner(data) {
+  const dupDiv = document.getElementById('duplicate-info');
+  const total  = data.total_rows     || 0;
+  const valid  = data.valid_new_count || 0;
+  const dup    = data.duplicate_count || 0;
+  const inv    = data.invalid_count  || 0;
+
+  if (total === 0) { dupDiv.style.display = 'none'; return; }
+
+  const parts = [];
+  if (valid  > 0) parts.push(`<span style="color:#15803D"><i class="fas fa-check-circle"></i> <strong>${valid.toLocaleString()}</strong> new valid</span>`);
+  if (dup    > 0) parts.push(`<span style="color:#B45309"><i class="fas fa-copy"></i> <strong>${dup.toLocaleString()}</strong> duplicate</span>`);
+  if (inv    > 0) parts.push(`<span style="color:#DC2626"><i class="fas fa-times-circle"></i> <strong>${inv.toLocaleString()}</strong> invalid phone</span>`);
+
+  const cls  = inv > 0 ? 'alert-danger' : (dup > 0 ? 'alert-warning' : 'alert-success');
+  const icon = inv > 0 ? 'fas fa-exclamation-circle' : (dup > 0 ? 'fas fa-exclamation-triangle' : 'fas fa-check-circle');
+  dupDiv.style.display = 'block';
+  dupDiv.innerHTML = `<div class="alert ${cls}" style="font-size:13px">
+    <i class="${icon}"></i>
+    <div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">${parts.join('')}</div>
+      ${dup > 0 ? '<div style="margin-top:4px;font-size:12px;opacity:.8">Duplicates will be skipped unless "Update existing" is checked.</div>' : ''}
+      ${inv > 0 ? '<div style="margin-top:4px;font-size:12px;opacity:.8">Rows with invalid phone numbers will always be skipped.</div>' : ''}
+    </div>
+  </div>`;
 }
 
 // ── Rebuild preview table based on current mapping ────────
@@ -592,31 +665,92 @@ function rebuildPreview() {
     return;
   }
 
-  // Build preview table headers
+  const phoneIdx     = mapping['phone'];
+  const autoPhoneIdx = data.auto_map?.phone;
+  const useServerStatus = (phoneIdx === autoPhoneIdx);
+
+  // Build preview table headers (with Status column)
   const mappedFields = Object.keys(mapping);
   const thead = document.getElementById('preview-thead');
-  thead.innerHTML = '<tr>' + mappedFields.map(f =>
-    `<th>${f.replace('_',' ')}</th>`
-  ).join('') + '</tr>';
+  thead.innerHTML = '<tr>'
+    + mappedFields.map(f => `<th>${f.replace(/_/g,' ')}</th>`).join('')
+    + '<th style="text-align:center;width:72px">Status</th></tr>';
 
-  // Build rows from sample_rows
+  // Build rows with colour-coding
   const tbody = document.getElementById('preview-tbody');
   tbody.innerHTML = '';
+
   data.sample_rows.forEach(row => {
     const tr = document.createElement('tr');
+
+    // Determine status for this row
+    let status, hint;
+    if (useServerStatus) {
+      status = row['_status'] || 'unknown';
+      hint   = row['_hint']   || '';
+    } else {
+      // Re-validate format in JS (no duplicate DB check when column changes)
+      const phone = row[phoneIdx] ?? '';
+      if (!phone || !isValidKenyanPhone(phone)) {
+        status = 'invalid';
+        hint   = phone ? 'Bad format: ' + phone : 'Missing phone';
+      } else {
+        status = 'valid';
+        hint   = '';
+      }
+    }
+
+    // Row background
+    if      (status === 'valid')     tr.style.background = '#F0FDF4';
+    else if (status === 'duplicate') tr.style.background = '#FFFBEB';
+    else if (status === 'invalid')   tr.style.background = '#FEF2F2';
+
     mappedFields.forEach(f => {
       const td = document.createElement('td');
       td.style.fontSize = '13px';
       td.textContent = row[mapping[f]] ?? '';
       tr.appendChild(td);
     });
+
+    // Status cell
+    const statusTd = document.createElement('td');
+    statusTd.style.textAlign = 'center';
+    statusTd.title = hint;
+    if (status === 'valid') {
+      statusTd.innerHTML = '<span style="color:#15803D;font-size:12px;font-weight:700">✓ New</span>';
+    } else if (status === 'duplicate') {
+      statusTd.innerHTML = '<span style="color:#B45309;font-size:12px;font-weight:700">⚠ Dup</span>';
+    } else if (status === 'invalid') {
+      statusTd.innerHTML = '<span style="color:#DC2626;font-size:12px;font-weight:700">✗ Bad</span>';
+    } else {
+      statusTd.innerHTML = '<span style="color:#94A3B8;font-size:12px">—</span>';
+    }
+    tr.appendChild(statusTd);
     tbody.appendChild(tr);
   });
+
+  // Validation summary above table
+  const showingAll = data.sample_rows.length >= data.total_rows;
+  let summaryEl = document.getElementById('preview-summary');
+  if (!summaryEl) {
+    summaryEl = document.createElement('div');
+    summaryEl.id = 'preview-summary';
+    document.getElementById('step3-card').querySelector('.card-header').insertAdjacentElement('afterend', summaryEl);
+  }
+  const valid  = data.valid_new_count || 0;
+  const dup    = data.duplicate_count || 0;
+  const inv    = data.invalid_count   || 0;
+  summaryEl.innerHTML = `<div style="padding:8px 16px;border-bottom:1px solid var(--border);background:#F8FAFC;display:flex;gap:16px;flex-wrap:wrap;font-size:12px">
+    <span style="color:#15803D"><strong>${valid.toLocaleString()}</strong> new</span>
+    ${dup > 0 ? `<span style="color:#B45309"><strong>${dup.toLocaleString()}</strong> duplicate</span>` : ''}
+    ${inv > 0 ? `<span style="color:#DC2626"><strong>${inv.toLocaleString()}</strong> invalid</span>` : ''}
+    <span style="color:var(--text-muted);margin-left:auto">${showingAll ? 'All' : 'First ' + data.sample_rows.length + ' of ' + data.total_rows.toLocaleString()} rows shown</span>
+  </div>`;
 
   document.getElementById('preview-total-badge').textContent =
     data.total_rows.toLocaleString() + ' rows total';
   document.getElementById('confirm-count').textContent =
-    ' (' + data.total_rows.toLocaleString() + ' rows)';
+    ' (' + valid.toLocaleString() + ' new)';
 
   document.getElementById('step3-card').style.display = 'block';
 }

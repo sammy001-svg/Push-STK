@@ -409,10 +409,11 @@ function parseCsv(string $filePath): array {
  */
 function parseCsvWithMapping(string $filePath, array $mapping): array {
     require_once __DIR__ . '/Mpesa.php';
-    $rows   = [];
-    $errors = [];
-    $handle = fopen($filePath, 'r');
-    if (!$handle) return ['rows' => [], 'errors' => ['Cannot open file.']];
+    $rows      = [];
+    $errors    = [];
+    $errorRows = []; // structured data for failed rows → downloadable CSV
+    $handle    = fopen($filePath, 'r');
+    if (!$handle) return ['rows' => [], 'errors' => ['Cannot open file.'], 'error_rows' => []];
 
     $bom = fread($handle, 3);
     if ($bom !== "\xEF\xBB\xBF") rewind($handle);
@@ -429,11 +430,13 @@ function parseCsvWithMapping(string $filePath, array $mapping): array {
 
         $rowErrs = validateCsvRow($row);
         if ($rowErrs) {
-            $errors[] = "Row {$lineNo}: " . implode('; ', $rowErrs);
+            $errMsg    = implode('; ', $rowErrs);
+            $errors[]  = "Row {$lineNo}: {$errMsg}";
+            $errorRows[] = array_merge(['_row' => $lineNo, '_error' => $errMsg], $row);
         } else {
             $rows[] = $row;
         }
     }
     fclose($handle);
-    return compact('rows', 'errors');
+    return compact('rows', 'errors', 'error_rows');
 }

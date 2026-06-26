@@ -150,8 +150,17 @@ require __DIR__ . '/../templates/header.php';
         </button>
       <?php endif; ?>
       <?php if ($campaign['status'] === 'completed'): ?>
-        <a href="<?= APP_URL ?>/transactions/index.php?campaign_id=<?= $id ?>" class="btn btn-light btn-lg">
-          <i class="fas fa-download"></i> Export Report
+        <a href="<?= APP_URL ?>/campaigns/report.php?id=<?= $id ?>" class="btn btn-secondary btn-lg">
+          <i class="fas fa-print"></i> Print Report
+        </a>
+        <a href="<?= APP_URL ?>/transactions/index.php?campaign_id=<?= $id ?>&export=csv" class="btn btn-light btn-lg">
+          <i class="fas fa-file-csv"></i> Export CSV
+        </a>
+      <?php endif; ?>
+      <?php if (!in_array($campaign['status'], ['running'])): ?>
+        <a href="<?= APP_URL ?>/campaigns/create.php?clone=<?= $id ?>" class="btn btn-light btn-lg"
+           title="Duplicate this campaign's settings into a new draft">
+          <i class="fas fa-copy"></i> Clone
         </a>
       <?php endif; ?>
       <?php if ($retryableCount > 0 && in_array($campaign['status'], ['completed', 'paused', 'draft'])): ?>

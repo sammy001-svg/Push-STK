@@ -8,6 +8,28 @@ require_once __DIR__ . '/../includes/functions.php';
 Auth::start();
 Auth::requireLogin();
 
+// ── Edit / Clone detection ────────────────────────────────
+$editId    = (int)($_GET['edit']  ?? 0);
+$cloneId   = (int)($_GET['clone'] ?? 0);
+$editMode  = ($editId  > 0);
+$cloneMode = ($cloneId > 0);
+$sourceId  = $editId ?: $cloneId;
+
+$sourceCamp = null;
+if ($sourceId) {
+    $sourceCamp = Database::fetchOne("SELECT * FROM campaigns WHERE id = ?", [$sourceId]);
+    if ($editMode) {
+        if (!$sourceCamp) {
+            flash('error', 'Campaign not found.');
+            redirect(APP_URL . '/campaigns/index.php');
+        }
+        if ($sourceCamp['status'] !== 'draft') {
+            flash('error', 'Only draft campaigns can be edited.');
+            redirect(APP_URL . '/campaigns/view.php?id=' . $editId);
+        }
+    }
+}
+
 $errors = [];
 $data   = [
     'name'             => '',
@@ -22,8 +44,27 @@ $data   = [
     'scheduled_at'     => '',
 ];
 
+// Pre-fill form from source campaign on GET requests
+if ($sourceCamp && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $data = [
+        'name'             => $sourceCamp['name'] . ($cloneMode ? ' (Copy)' : ''),
+        'description'      => $sourceCamp['description'] ?? '',
+        'amount'           => $sourceCamp['amount'],
+        'account_ref'      => $sourceCamp['account_ref'],
+        'transaction_desc' => $sourceCamp['transaction_desc'],
+        'recipient_type'   => 'all',
+        'group_name'       => '',
+        'custom_phones'    => '',
+        'send_timing'      => ($editMode && $sourceCamp['scheduled_at']) ? 'scheduled' : 'now',
+        'scheduled_at'     => $editMode ? ($sourceCamp['scheduled_at'] ?? '') : '',
+    ];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verifyCsrf();
+    $postEditId = (int)($_POST['edit_id'] ?? 0);
+    $editMode   = ($postEditId > 0);
+
     $data = [
         'name'             => trim($_POST['name']             ?? ''),
         'description'      => trim($_POST['description']      ?? ''),
@@ -36,6 +77,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'send_timing'      => $_POST['send_timing']           ?? 'now',
         'scheduled_at'     => trim($_POST['scheduled_at']     ?? ''),
     ];
+
+    // Extra validation for edit mode
+    if ($editMode) {
+        $editTarget = Database::fetchOne("SELECT id, status FROM campaigns WHERE id = ?", [$postEditId]);
+        if (!$editTarget || $editTarget['status'] !== 'draft') {
+            $errors[] = 'Campaign not found or is no longer a draft.';
+        }
+    }
 
     // Validation
     if (!$data['name'])   $errors[] = 'Campaign name is required.';
@@ -110,45 +159,91 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         Database::beginTransaction();
         try {
-            $campaignId = Database::insert('campaigns', [
-                'name'             => $data['name'],
-                'description'      => $data['description'] ?: null,
-                'amount'           => (float)$data['amount'],
-                'account_ref'      => $data['account_ref'],
-                'transaction_desc' => $data['transaction_desc'],
-                'scheduled_at'     => $scheduledAt,
-                'total_recipients' => count($recipientIds),
-                'pending_count'    => count($recipientIds),
-                'total_amount'     => (float)$data['amount'] * count($recipientIds),
-                'status'           => $campaignStatus,
-                'created_by'       => Auth::userId(),
-            ]);
+            $amount   = (float)$data['amount'];
+            $recCount = count($recipientIds);
 
-            // Build recipient rows using bulk INSERT (2 queries per 500 recipients vs 500 INSERTs)
-            $amount = (float)$data['amount'];
-            foreach (array_chunk($recipientIds, 500) as $chunk) {
-                $customers = Database::fetchAll(
-                    "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
-                );
-                $rows = [];
-                foreach ($customers as $cust) {
-                    $rows[] = [
-                        'campaign_id' => $campaignId,
-                        'customer_id' => $cust['id'],
-                        'phone'       => $cust['phone_formatted'],
-                        'amount'      => $amount,
-                        'status'      => 'pending',
-                    ];
+            if ($editMode) {
+                // ── Update existing draft ─────────────────────────────
+                Database::update('campaigns', [
+                    'name'             => $data['name'],
+                    'description'      => $data['description'] ?: null,
+                    'amount'           => $amount,
+                    'account_ref'      => $data['account_ref'],
+                    'transaction_desc' => $data['transaction_desc'],
+                    'scheduled_at'     => $scheduledAt,
+                    'total_recipients' => $recCount,
+                    'pending_count'    => $recCount,
+                    'total_amount'     => $amount * $recCount,
+                    'status'           => $campaignStatus,
+                ], 'id = ?', [$postEditId]);
+
+                // Replace recipient list
+                Database::query("DELETE FROM campaign_recipients WHERE campaign_id = ?", [$postEditId]);
+
+                foreach (array_chunk($recipientIds, 500) as $chunk) {
+                    $customers = Database::fetchAll(
+                        "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
+                    );
+                    $rows = [];
+                    foreach ($customers as $cust) {
+                        $rows[] = [
+                            'campaign_id' => $postEditId,
+                            'customer_id' => $cust['id'],
+                            'phone'       => $cust['phone_formatted'],
+                            'amount'      => $amount,
+                            'status'      => 'pending',
+                        ];
+                    }
+                    Database::bulkInsert('campaign_recipients', $rows);
                 }
-                Database::bulkInsert('campaign_recipients', $rows);
-            }
 
-            Database::commit();
-            $scheduleNote = $scheduledAt ? " Scheduled for " . date('D j M Y, g:ia', strtotime($scheduledAt)) . "." : " Ready to launch!";
-            logActivity(Auth::userId(), 'campaign_create', 'campaigns',
-                "Created campaign '{$data['name']}' with " . count($recipientIds) . " recipients" . ($scheduledAt ? "; scheduled for {$scheduledAt}" : ''));
-            flash('success', "Campaign '{$data['name']}' created with " . count($recipientIds) . " recipients.{$scheduleNote}");
-            redirect(APP_URL . '/campaigns/view.php?id=' . $campaignId);
+                Database::commit();
+                $scheduleNote = $scheduledAt ? " Scheduled for " . date('D j M Y, g:ia', strtotime($scheduledAt)) . "." : " Ready to launch!";
+                logActivity(Auth::userId(), 'campaign_edit', 'campaigns',
+                    "Updated draft campaign '{$data['name']}' — {$recCount} recipients");
+                flash('success', "Campaign updated with {$recCount} recipients.{$scheduleNote}");
+                redirect(APP_URL . '/campaigns/view.php?id=' . $postEditId);
+
+            } else {
+                // ── Create new campaign ───────────────────────────────
+                $campaignId = Database::insert('campaigns', [
+                    'name'             => $data['name'],
+                    'description'      => $data['description'] ?: null,
+                    'amount'           => $amount,
+                    'account_ref'      => $data['account_ref'],
+                    'transaction_desc' => $data['transaction_desc'],
+                    'scheduled_at'     => $scheduledAt,
+                    'total_recipients' => $recCount,
+                    'pending_count'    => $recCount,
+                    'total_amount'     => $amount * $recCount,
+                    'status'           => $campaignStatus,
+                    'created_by'       => Auth::userId(),
+                ]);
+
+                foreach (array_chunk($recipientIds, 500) as $chunk) {
+                    $customers = Database::fetchAll(
+                        "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
+                    );
+                    $rows = [];
+                    foreach ($customers as $cust) {
+                        $rows[] = [
+                            'campaign_id' => $campaignId,
+                            'customer_id' => $cust['id'],
+                            'phone'       => $cust['phone_formatted'],
+                            'amount'      => $amount,
+                            'status'      => 'pending',
+                        ];
+                    }
+                    Database::bulkInsert('campaign_recipients', $rows);
+                }
+
+                Database::commit();
+                $scheduleNote = $scheduledAt ? " Scheduled for " . date('D j M Y, g:ia', strtotime($scheduledAt)) . "." : " Ready to launch!";
+                logActivity(Auth::userId(), 'campaign_create', 'campaigns',
+                    "Created campaign '{$data['name']}' with {$recCount} recipients" . ($scheduledAt ? "; scheduled for {$scheduledAt}" : ''));
+                flash('success', "Campaign '{$data['name']}' created with {$recCount} recipients.{$scheduleNote}");
+                redirect(APP_URL . '/campaigns/view.php?id=' . $campaignId);
+            }
 
         } catch (Throwable $e) {
             Database::rollback();
@@ -160,17 +255,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $groups       = Database::fetchAll("SELECT g.name AS group_name, COUNT(c.id) AS cnt FROM customer_groups g LEFT JOIN customers c ON c.group_name = g.name AND c.status = 1 GROUP BY g.id ORDER BY g.name");
 $totalCustomers = Database::count("SELECT COUNT(*) FROM customers WHERE status = 1");
 
-$pageTitle    = 'New Campaign';
-$pageSubtitle = 'Campaigns &rsaquo; Create';
+if ($editMode)       { $pageTitle = 'Edit Campaign';  $pageSubtitle = 'Campaigns &rsaquo; Edit'; }
+elseif ($cloneMode)  { $pageTitle = 'Clone Campaign'; $pageSubtitle = 'Campaigns &rsaquo; Clone'; }
+else                 { $pageTitle = 'New Campaign';   $pageSubtitle = 'Campaigns &rsaquo; Create'; }
 require __DIR__ . '/../templates/header.php';
 ?>
 
 <div class="page-header">
   <div style="display:flex;align-items:center;gap:12px">
-    <a href="<?= APP_URL ?>/campaigns/index.php" class="btn btn-light btn-sm"><i class="fas fa-arrow-left"></i></a>
+    <a href="<?= $editMode || $cloneMode ? APP_URL . '/campaigns/view.php?id=' . $sourceId : APP_URL . '/campaigns/index.php' ?>"
+       class="btn btn-light btn-sm"><i class="fas fa-arrow-left"></i></a>
     <div>
-      <h1><i class="fas fa-rocket" style="color:var(--secondary);margin-right:8px"></i>Create Campaign</h1>
-      <p>Set up a new bulk STK push campaign</p>
+      <?php if ($editMode): ?>
+        <h1><i class="fas fa-edit" style="color:var(--secondary);margin-right:8px"></i>Edit Draft Campaign</h1>
+        <p>Update settings for <strong><?= e($sourceCamp['name']) ?></strong> &mdash; <?= number_format($sourceCamp['total_recipients']) ?> current recipients</p>
+      <?php elseif ($cloneMode): ?>
+        <h1><i class="fas fa-copy" style="color:var(--secondary);margin-right:8px"></i>Clone Campaign</h1>
+        <p>Pre-filled from <strong><?= e($sourceCamp['name']) ?></strong> &mdash; choose recipients to create a new draft</p>
+      <?php else: ?>
+        <h1><i class="fas fa-rocket" style="color:var(--secondary);margin-right:8px"></i>Create Campaign</h1>
+        <p>Set up a new bulk STK push campaign</p>
+      <?php endif; ?>
     </div>
   </div>
 </div>
@@ -184,6 +289,9 @@ require __DIR__ . '/../templates/header.php';
 
 <form method="POST" action="">
   <input type="hidden" name="csrf_token" value="<?= csrfToken() ?>"/>
+  <?php if ($editMode): ?>
+    <input type="hidden" name="edit_id" value="<?= $editId ?>"/>
+  <?php endif; ?>
   <div class="grid-2" style="grid-template-columns:1.3fr 1fr;align-items:start">
 
     <!-- Left: Campaign Details -->
@@ -361,11 +469,15 @@ require __DIR__ . '/../templates/header.php';
             </div>
           </div>
 
-          <button type="submit" id="submit-btn" class="btn btn-secondary btn-xl w-100 mt-3" style="justify-content:center">
+          <button type="submit" id="submit-btn" class="btn btn-secondary btn-xl w-100 mt-3" style="justify-content:center"
+                  data-baselabel="<?= $editMode ? 'Update Campaign' : ($cloneMode ? 'Clone Campaign' : 'Create Campaign') ?>">
             <i class="fas fa-check" id="submit-icon"></i>
-            <span id="submit-label">Create Campaign</span>
+            <span id="submit-label">
+              <?php if ($editMode): ?>Update Campaign<?php elseif ($cloneMode): ?>Clone Campaign<?php else: ?>Create Campaign<?php endif; ?>
+            </span>
           </button>
-          <a href="<?= APP_URL ?>/campaigns/index.php" class="btn btn-light w-100 mt-2" style="justify-content:center">Cancel</a>
+          <a href="<?= $editMode || $cloneMode ? APP_URL . '/campaigns/view.php?id=' . $sourceId : APP_URL . '/campaigns/index.php' ?>"
+             class="btn btn-light w-100 mt-2" style="justify-content:center">Cancel</a>
         </div>
       </div>
     </div>
@@ -428,8 +540,9 @@ function toggleSchedule(val) {
   dn.style.background  = val === 'now'       ? 'rgba(0,166,81,0.05)' : '';
   ds.style.borderColor = val === 'scheduled' ? 'var(--secondary)' : 'var(--border)';
   ds.style.background  = val === 'scheduled' ? 'rgba(0,166,81,0.05)' : '';
+  const baseLabel = document.getElementById('submit-btn').dataset.baselabel || 'Create Campaign';
   document.getElementById('submit-icon').className  = val === 'scheduled' ? 'fas fa-calendar-check' : 'fas fa-check';
-  document.getElementById('submit-label').textContent = val === 'scheduled' ? 'Schedule Campaign' : 'Create Campaign';
+  document.getElementById('submit-label').textContent = val === 'scheduled' ? 'Schedule ' + baseLabel.replace(/^(Update |Clone |Create )/, '') : baseLabel;
   if (val === 'scheduled') {
     const dtInput = document.querySelector('[name=scheduled_at]');
     if (dtInput && !dtInput.value) {

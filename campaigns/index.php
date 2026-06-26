@@ -183,9 +183,14 @@ require __DIR__ . '/../templates/header.php';
                 <a href="<?= APP_URL ?>/campaigns/view.php?id=<?= $c['id'] ?>" class="btn btn-outline-primary btn-sm" title="View / Send">
                   <i class="fas fa-eye"></i>
                 </a>
-                <?php if (in_array($c['status'], ['draft'])): ?>
-                  <a href="<?= APP_URL ?>/campaigns/create.php?edit=<?= $c['id'] ?>" class="btn btn-light btn-sm" title="Edit">
+                <?php if ($c['status'] === 'draft'): ?>
+                  <a href="<?= APP_URL ?>/campaigns/create.php?edit=<?= $c['id'] ?>" class="btn btn-light btn-sm" title="Edit Draft">
                     <i class="fas fa-edit"></i>
+                  </a>
+                <?php endif; ?>
+                <?php if (!in_array($c['status'], ['running'])): ?>
+                  <a href="<?= APP_URL ?>/campaigns/create.php?clone=<?= $c['id'] ?>" class="btn btn-light btn-sm" title="Clone">
+                    <i class="fas fa-copy"></i>
                   </a>
                 <?php endif; ?>
                 <?php if (!in_array($c['status'], ['running', 'queued'])): ?>
