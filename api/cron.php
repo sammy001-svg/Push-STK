@@ -34,16 +34,37 @@ foreach ($due as $row) {
     $launched[] = ['id' => $row['id'], 'name' => $row['name']];
 }
 
-// ── 2. Time-out stale 'sent' recipients ──────────────────────
-// Recipients stuck in 'sent'/'processing' longer than STK_TIMEOUT seconds
-// never received a callback (ngrok down, network issue, etc.)
+// ── 2. Recover stuck 'processing' recipients ─────────────────
+// Recipients left in 'processing' from an interrupted PHP request — reset to pending so they get resent.
+$recoveredProcessing = 0;
+$stuckProcessing = Database::fetchAll("
+    SELECT id, campaign_id
+    FROM campaign_recipients
+    WHERE status = 'processing'
+      AND sent_at IS NULL
+      AND updated_at < NOW() - INTERVAL 120 SECOND
+    LIMIT 200
+");
+if ($stuckProcessing) {
+    $stuckIds = array_column($stuckProcessing, 'id');
+    $phP      = implode(',', array_fill(0, count($stuckIds), '?'));
+    Database::query(
+        "UPDATE campaign_recipients SET status='pending' WHERE id IN ({$phP})",
+        $stuckIds
+    );
+    $recoveredProcessing = count($stuckIds);
+}
+
+// ── 3. Mark stale 'sent' recipients as failed ────────────────
+// Recipients dispatched to M-Pesa but callback never arrived after STK_TIMEOUT seconds.
+// Mark as 'failed' (not 'timeout') so Recovery Centre can retry them.
 $stkTimeout = (int)getSetting('stk_timeout', (string)STK_TIMEOUT);
 $timedOut   = 0;
 
 $stale = Database::fetchAll("
     SELECT cr.id, cr.campaign_id, cr.checkout_request_id
     FROM campaign_recipients cr
-    WHERE cr.status IN ('sent','processing')
+    WHERE cr.status = 'sent'
       AND cr.sent_at IS NOT NULL
       AND cr.sent_at < NOW() - INTERVAL ? SECOND
     LIMIT 200
@@ -54,17 +75,17 @@ if ($stale) {
     $ph       = implode(',', array_fill(0, count($staleIds), '?'));
     Database::query(
         "UPDATE campaign_recipients
-            SET status='timeout', result_desc='No callback received (timed out)', completed_at=NOW()
+            SET status='failed', result_desc='No callback received — use Recovery Centre to retry', completed_at=NOW()
           WHERE id IN ({$ph})",
         $staleIds
     );
 
-    // Also timeout matching transactions
+    // Mark matching transactions as failed too
     $checkoutIds = array_filter(array_column($stale, 'checkout_request_id'));
     if ($checkoutIds) {
         $ph2 = implode(',', array_fill(0, count($checkoutIds), '?'));
         Database::query(
-            "UPDATE transactions SET status='timeout', completed_at=NOW()
+            "UPDATE transactions SET status='failed', completed_at=NOW()
               WHERE checkout_request_id IN ({$ph2}) AND status IN ('initiated','pending')",
             $checkoutIds
         );
@@ -103,7 +124,8 @@ if ($stale) {
 }
 
 echo json_encode([
-    'launched'   => $launched,
-    'timed_out'  => $timedOut,
-    'checked_at' => date('Y-m-d H:i:s'),
+    'launched'             => $launched,
+    'recovered_processing' => $recoveredProcessing,
+    'timed_out'            => $timedOut,
+    'checked_at'           => date('Y-m-d H:i:s'),
 ]);

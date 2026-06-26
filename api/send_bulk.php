@@ -10,12 +10,15 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/Mpesa.php';
 
+set_time_limit(120); // M-Pesa calls can be slow; default 30s is too tight for a full batch
+
 header('Content-Type: application/json');
 
 Auth::start();
 if (!Auth::isLoggedIn()) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 401);
 }
+session_write_close(); // Release session lock before slow Daraja API calls
 
 $input      = json_decode(file_get_contents('php://input'), true) ?? [];
 $campaignId = (int)($input['campaign_id'] ?? $_POST['campaign_id'] ?? 0);
@@ -42,7 +45,7 @@ $batch = Database::fetchAll("
     FROM campaign_recipients cr
     LEFT JOIN customers c ON c.id = cr.customer_id
     WHERE cr.campaign_id = ? AND cr.status = 'pending'
-    ORDER BY cr.id ASC
+    ORDER BY cr.retry_count ASC, cr.id ASC
     LIMIT ?
 ", [$campaignId, $batchSize]);
 
@@ -57,10 +60,9 @@ if (empty($batch)) {
         // Final tally
         $stats = Database::fetchOne("
             SELECT
-                SUM(status='success') AS success_count,
-                SUM(status='failed')  AS failed_count,
-                SUM(status='timeout') AS timeout_count,
-                COUNT(*) AS total
+                SUM(status='success')                           AS success_count,
+                SUM(status IN ('failed','timeout','cancelled')) AS failed_count,
+                COUNT(*)                                        AS total
             FROM campaign_recipients
             WHERE campaign_id = ?
         ", [$campaignId]);
@@ -211,9 +213,9 @@ foreach ($batch as $recipient) {
 $stats = Database::fetchOne("
     SELECT
         SUM(status IN ('sent','success','failed','timeout','cancelled')) AS sent_count,
-        SUM(status='success')  AS success_count,
-        SUM(status='failed')   AS failed_count,
-        SUM(status='pending')  AS pending_count
+        SUM(status='success')                                            AS success_count,
+        SUM(status IN ('failed','timeout','cancelled'))                  AS failed_count,
+        SUM(status='pending')                                            AS pending_count
     FROM campaign_recipients
     WHERE campaign_id = ?
 ", [$campaignId]);

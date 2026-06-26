@@ -46,11 +46,10 @@ try {
     $transDate    = isset($meta['TransactionDate']) ? (string)$meta['TransactionDate'] : null;
 
     // Map ResultCode → status
-    // 0=success, 1032=user cancelled, 1037=subscriber unreachable/timeout, others=failed
+    // 0=success, 1032=user cancelled, all others (incl. 1037 unreachable) → failed so they can be retried
     $status = match (true) {
         $resultCode === 0    => 'success',
         $resultCode === 1032 => 'cancelled',
-        $resultCode === 1037 => 'timeout',
         default              => 'failed',
     };
 

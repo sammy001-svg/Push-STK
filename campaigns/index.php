@@ -127,9 +127,10 @@ require __DIR__ . '/../templates/header.php';
         <tbody>
         <?php foreach ($campaigns as $c): ?>
           <?php
-          $pct    = $c['total_recipients'] > 0 ? round(($c['sent_count'] / $c['total_recipients']) * 100) : 0;
-          $succPct = $c['total_recipients'] > 0 ? round(($c['success_count'] / $c['total_recipients']) * 100) : 0;
-          $failPct = $c['total_recipients'] > 0 ? round(($c['failed_count'] / $c['total_recipients']) * 100) : 0;
+          $pct      = $c['total_recipients'] > 0 ? round(($c['sent_count']    / $c['total_recipients']) * 100) : 0;
+          $succPct  = $c['total_recipients'] > 0 ? round(($c['success_count'] / $c['total_recipients']) * 100) : 0;
+          $failPct  = $c['total_recipients'] > 0 ? round(($c['failed_count']  / $c['total_recipients']) * 100) : 0;
+          $awaitPct = max(0, $pct - $succPct - $failPct); // dispatched but callback not yet received
           ?>
           <tr>
             <td>
@@ -167,8 +168,9 @@ require __DIR__ . '/../templates/header.php';
               <div class="progress progress-sm">
                 <div class="progress-bar bg-success" style="width:<?= $succPct ?>%"></div>
                 <div class="progress-bar bg-danger"  style="width:<?= $failPct ?>%"></div>
+                <div class="progress-bar" style="width:<?= $awaitPct ?>%;background:var(--primary);opacity:.45" title="Dispatched — awaiting confirmation"></div>
               </div>
-              <div style="font-size:11px;color:var(--text-muted);margin-top:3px"><?= $pct ?>% complete</div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:3px"><?= $pct ?>% dispatched</div>
             </td>
             <td><?= statusBadge($c['status']) ?></td>
             <td style="font-size:12px;color:var(--text-muted)"><?= date('d M Y H:i', strtotime($c['created_at'])) ?></td>

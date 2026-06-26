@@ -26,7 +26,7 @@ define('MPESA_TIMEOUT_URL',  APP_URL . '/api/timeout.php');
 define('BATCH_SIZE',   5);    // STK pushes per batch
 define('BATCH_DELAY',  1200); // ms between batches (client-side polling)
 define('MAX_RETRIES',  2);    // Retry failed pushes
-define('STK_TIMEOUT',  55);   // Seconds to wait for callback before marking as timeout
+define('STK_TIMEOUT',  180);  // Seconds to wait for callback before marking as failed
 
 // Daraja Base URLs
 define('MPESA_SANDBOX_URL',    'https://sandbox.safaricom.co.ke');

@@ -48,6 +48,11 @@ switch ($action) {
         if (!in_array($campaign['status'], ['draft', 'paused', 'queued', 'scheduled'])) {
             jsonResponse(['success' => false, 'message' => 'Campaign cannot be started from status: ' . $campaign['status']]);
         }
+        // Recover any recipients left in 'processing' from a previous interrupted run
+        Database::query(
+            "UPDATE campaign_recipients SET status='pending' WHERE campaign_id=? AND status='processing'",
+            [$campaignId]
+        );
         Database::update('campaigns', [
             'status'     => 'running',
             'started_at' => $campaign['started_at'] ?? date('Y-m-d H:i:s'),

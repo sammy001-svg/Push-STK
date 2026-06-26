@@ -18,12 +18,12 @@ $checkoutId = $data['Body']['stkCallback']['CheckoutRequestID'] ?? null;
 if ($checkoutId) {
     try {
         Database::query(
-            "UPDATE transactions SET status='timeout', completed_at=NOW()
+            "UPDATE transactions SET status='failed', completed_at=NOW()
               WHERE checkout_request_id=? AND status IN ('initiated','pending')",
             [$checkoutId]
         );
         Database::query(
-            "UPDATE campaign_recipients SET status='timeout', result_desc='Transaction timed out', completed_at=NOW()
+            "UPDATE campaign_recipients SET status='failed', result_desc='STK push timed out — use Recovery Centre to retry', completed_at=NOW()
               WHERE checkout_request_id=? AND status IN ('sent','processing')",
             [$checkoutId]
         );
