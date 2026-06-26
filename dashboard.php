@@ -111,7 +111,7 @@ require __DIR__ . '/templates/header.php';
   <div class="stat-card" style="--stat-color:#8B5CF6;--stat-icon-bg:rgba(139,92,246,0.08)">
     <div class="stat-icon"><i class="fas fa-coins"></i></div>
     <div style="flex:1">
-      <div class="stat-value" id="kpi-revenue" style="font-size:20px">KES <?= number_format($cur['revenue']) ?></div>
+      <div class="stat-value" id="kpi-revenue" style="font-size:20px">KES <?= number_format($cur['revenue'], 2) ?></div>
       <div class="stat-label">Revenue Collected</div>
       <div class="stat-change <?= $rr['dir'] === 'up' ? 'up' : ($rr['dir'] === 'down' ? 'down' : '') ?>">
         <?php if ($rr['pct'] !== null): ?>
@@ -119,11 +119,11 @@ require __DIR__ . '/templates/header.php';
           <?= $rr['pct'] ?>% vs prev period
         <?php else: ?>
           <i class="fas fa-money-bill-wave" style="font-size:9px"></i>
-          All time: KES <?= number_format($stats['total_amount']) ?>
+          All time: KES <?= number_format($stats['total_amount'], 2) ?>
         <?php endif; ?>
       </div>
     </div>
-    <div class="kpi-prev">KES <?= number_format($prev['revenue']) ?> prev</div>
+    <div class="kpi-prev">KES <?= number_format($prev['revenue'], 2) ?> prev</div>
   </div>
 
   <!-- Customers -->

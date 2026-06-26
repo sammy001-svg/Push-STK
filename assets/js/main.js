@@ -235,7 +235,7 @@ const BulkSender = {
       item.className = 'recent-tx-item';
       item.innerHTML = `
         <div class="customer-cell">
-          <div class="customer-avatar">${(tx.name || tx.phone)[0].toUpperCase()}</div>
+          <div class="customer-avatar">${(tx.name || tx.phone || '?')[0].toUpperCase()}</div>
           <div>
             <div class="customer-name">${tx.name || 'Unknown'}</div>
             <div class="customer-phone">${tx.phone}</div>
@@ -243,7 +243,7 @@ const BulkSender = {
         </div>
         <div style="text-align:right">
           <span class="badge ${cls}">${tx.status}</span>
-          <div style="font-size:12px;color:#64748B;margin-top:3px">KES ${parseFloat(tx.amount).toLocaleString()}</div>
+          <div style="font-size:12px;color:#64748B;margin-top:3px">KES ${parseFloat(tx.amount || 0).toLocaleString()}</div>
         </div>
       `;
       container.insertBefore(item, container.firstChild);

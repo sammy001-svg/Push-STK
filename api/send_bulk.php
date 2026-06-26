@@ -36,9 +36,20 @@ if (!in_array($campaign['status'], ['queued', 'running', 'paused', 'draft'])) {
     jsonResponse(['success' => false, 'message' => 'Campaign is not in a sendable state.']);
 }
 
+// Load all needed settings in one query instead of one per key
+$cfg = getSettings(
+    ['batch_size', 'mpesa_callback_url', 'mpesa_env', 'max_retries'],
+    [
+        'batch_size'         => (string)BATCH_SIZE,
+        'mpesa_callback_url' => MPESA_CALLBACK_URL,
+        'mpesa_env'          => MPESA_ENV,
+        'max_retries'        => (string)MAX_RETRIES,
+    ]
+);
+$batchSize  = max(1, min(10, (int)$cfg['batch_size']));
+$maxRetries = (int)$cfg['max_retries'];
+
 // Fetch next batch of pending recipients
-$batchSize = (int)(getSetting('batch_size', (string)BATCH_SIZE));
-$batchSize = max(1, min(10, $batchSize));
 
 $batch = Database::fetchAll("
     SELECT cr.*, c.name AS customer_name, c.account_number
@@ -100,8 +111,8 @@ if ($campaign['status'] !== 'running') {
 }
 
 // Quick sanity-check: if callback URL is still HTTP in production, fail fast
-$callbackUrl = getSetting('mpesa_callback_url', MPESA_CALLBACK_URL);
-$env         = getSetting('mpesa_env', MPESA_ENV);
+$callbackUrl = $cfg['mpesa_callback_url'];
+$env         = $cfg['mpesa_env'];
 if ($env === 'production' && !str_starts_with($callbackUrl, 'https://')) {
     jsonResponse([
         'success' => false,
@@ -169,7 +180,6 @@ foreach ($batch as $recipient) {
         $errMsg     = $result['message'] ?? 'STK push failed';
         if ($firstError === null) $firstError = $errMsg;
         $retryCount = (int)$recipient['retry_count'] + 1;
-        $maxRetries = (int)(getSetting('max_retries', (string)MAX_RETRIES));
 
         if ($retryCount <= $maxRetries) {
             // Put back as pending for retry

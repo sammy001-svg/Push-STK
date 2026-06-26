@@ -55,16 +55,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
                 } else {
                     $imported = 0; $skipped = 0; $updated = 0; $errorCount = count($parsed['errors']);
 
+                    // Pre-load all existing phone_formatted → id in one query (avoids N SELECT per row)
+                    $existingRows = Database::fetchAll("SELECT id, phone_formatted FROM customers");
+                    $existingMap  = array_column($existingRows, 'id', 'phone_formatted');
+
                     Database::beginTransaction();
                     try {
                         foreach ($parsed['rows'] as $row) {
                             $formatted = Mpesa::formatPhone($row['phone']);
                             $grp       = $groupOverride ?: ($row['group'] ?? null);
-                            $existing  = Database::fetchOne(
-                                "SELECT id FROM customers WHERE phone_formatted = ?", [$formatted]
-                            );
 
-                            if ($existing) {
+                            if (isset($existingMap[$formatted])) {
                                 if ($updateExisting) {
                                     Database::update('customers', [
                                         'name'           => $row['name'],
@@ -72,7 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
                                         'account_number' => $row['account_number'] ?: null,
                                         'group_name'     => $grp ?: null,
                                         'status'         => 1,
-                                    ], 'id = ?', [$existing['id']]);
+                                    ], 'id = ?', [$existingMap[$formatted]]);
                                     $updated++;
                                 } else {
                                     $skipped++;
@@ -87,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
                                     'group_name'      => $grp ?: null,
                                     'status'          => 1,
                                 ]);
+                                $existingMap[$formatted] = true; // guard against duplicates within the same file
                                 $imported++;
                             }
                         }

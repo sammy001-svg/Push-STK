@@ -48,6 +48,29 @@ class Database {
         return (int) self::getConnection()->lastInsertId();
     }
 
+    /**
+     * Insert multiple rows in a single statement.
+     * $rows must all have the same keys (column names).
+     * Splits automatically into chunks to avoid packet-size limits.
+     */
+    public static function bulkInsert(string $table, array $rows, int $chunkSize = 500): void {
+        if (empty($rows)) return;
+        $cols    = array_keys($rows[0]);
+        $colsSql = implode(', ', $cols);
+        $rowPlac = '(' . implode(', ', array_fill(0, count($cols), '?')) . ')';
+
+        foreach (array_chunk($rows, $chunkSize) as $chunk) {
+            $values = implode(', ', array_fill(0, count($chunk), $rowPlac));
+            $params = [];
+            foreach ($chunk as $row) {
+                foreach ($cols as $col) {
+                    $params[] = $row[$col];
+                }
+            }
+            self::query("INSERT INTO {$table} ({$colsSql}) VALUES {$values}", $params);
+        }
+    }
+
     public static function update(string $table, array $data, string $where, array $whereParams = []): int {
         $set  = implode(' = ?, ', array_keys($data)) . ' = ?';
         $stmt = self::query(

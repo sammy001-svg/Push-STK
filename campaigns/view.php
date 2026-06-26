@@ -664,15 +664,15 @@ function updateLaunchModal(data) {
     item.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid #F3F4F6';
     item.innerHTML = `
       <div style="display:flex;align-items:center;gap:9px">
-        <div style="width:30px;height:30px;background:#E5E7EB;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#374151;flex-shrink:0">${(tx.name||tx.phone)[0].toUpperCase()}</div>
+        <div style="width:30px;height:30px;background:#E5E7EB;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#374151;flex-shrink:0">${(tx.name||tx.phone||'?')[0].toUpperCase()}</div>
         <div>
-          <div style="font-size:13px;font-weight:600;color:#111827">${tx.name||'Unknown'}</div>
+          <div style="font-size:13px;font-weight:600;color:#111827">${(tx.name||'Unknown').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
           <div style="font-size:11px;color:#6B7280">${tx.phone}</div>
         </div>
       </div>
       <div style="text-align:right;flex-shrink:0;margin-left:12px">
         <div style="font-size:12px;font-weight:600;color:${color}">${icon} ${tx.status.charAt(0).toUpperCase()+tx.status.slice(1)}</div>
-        <div style="font-size:11px;color:#6B7280">KES ${Number(tx.amount).toLocaleString()}</div>
+        <div style="font-size:11px;color:#6B7280">KES ${Number(tx.amount||0).toLocaleString()}</div>
       </div>`;
     feed.insertBefore(item, feed.firstChild);
   });

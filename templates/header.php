@@ -157,10 +157,22 @@ $flashData    = getFlash();
       <a href="<?= APP_URL ?>/campaigns/create.php" class="btn btn-secondary btn-sm">
         <i class="fas fa-plus"></i> New Campaign
       </a>
-      <div class="topbar-user" onclick="window.location='<?= APP_URL ?>/settings/index.php'">
+      <div class="topbar-user" id="topbar-user-btn" onclick="toggleUserMenu()" style="cursor:pointer;position:relative">
         <div class="avatar"><?= strtoupper(substr($_SESSION['user_name'] ?? 'A', 0, 1)) ?></div>
         <span style="font-size:13px;font-weight:600;color:var(--text)"><?= e(explode(' ', $_SESSION['user_name'] ?? 'Admin')[0]) ?></span>
-        <i class="fas fa-chevron-down" style="font-size:11px;color:var(--text-muted)"></i>
+        <i class="fas fa-chevron-down" id="topbar-chevron" style="font-size:11px;color:var(--text-muted);transition:transform .2s"></i>
+        <div id="topbar-dropdown" style="display:none;position:absolute;top:calc(100% + 8px);right:0;min-width:180px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);z-index:1000;overflow:hidden">
+          <div style="padding:12px 14px;border-bottom:1px solid var(--border);background:#F8FAFC">
+            <div style="font-size:13px;font-weight:700;color:var(--text)"><?= e($_SESSION['user_name'] ?? 'Admin') ?></div>
+            <div style="font-size:11px;color:var(--text-muted)"><?= e($_SESSION['user_email'] ?? '') ?></div>
+          </div>
+          <a href="<?= APP_URL ?>/settings/index.php" style="display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px;color:var(--text);text-decoration:none" onmouseover="this.style.background='#F1F5F9'" onmouseout="this.style.background=''">
+            <i class="fas fa-cog" style="width:14px;color:var(--text-muted)"></i> Settings
+          </a>
+          <a href="<?= APP_URL ?>/logout.php" style="display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px;color:#DC2626;text-decoration:none;border-top:1px solid var(--border)" onmouseover="this.style.background='#FFF1F2'" onmouseout="this.style.background=''">
+            <i class="fas fa-sign-out-alt" style="width:14px"></i> Sign out
+          </a>
+        </div>
       </div>
     </div>
   </header>

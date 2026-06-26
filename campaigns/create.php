@@ -110,24 +110,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'created_by'       => Auth::userId(),
             ]);
 
-            // Insert recipients in batches
-            $amount    = (float)$data['amount'];
-            $batchSize = 500;
-            $chunks    = array_chunk($recipientIds, $batchSize);
-
-            foreach ($chunks as $chunk) {
+            // Build recipient rows using bulk INSERT (2 queries per 500 recipients vs 500 INSERTs)
+            $amount = (float)$data['amount'];
+            foreach (array_chunk($recipientIds, 500) as $chunk) {
                 $customers = Database::fetchAll(
                     "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
                 );
+                $rows = [];
                 foreach ($customers as $cust) {
-                    Database::insert('campaign_recipients', [
+                    $rows[] = [
                         'campaign_id' => $campaignId,
                         'customer_id' => $cust['id'],
                         'phone'       => $cust['phone_formatted'],
                         'amount'      => $amount,
                         'status'      => 'pending',
-                    ]);
+                    ];
                 }
+                Database::bulkInsert('campaign_recipients', $rows);
             }
 
             Database::commit();

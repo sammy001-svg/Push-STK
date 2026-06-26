@@ -337,6 +337,28 @@ function getSetting(string $key, string $default = ''): string {
     return $row ? ($row['setting_value'] ?? $default) : $default;
 }
 
+/**
+ * Fetch multiple settings in one query.
+ * Returns an associative array keyed by setting_key.
+ * Missing keys fall back to the value supplied in $defaults (or '').
+ */
+function getSettings(array $keys, array $defaults = []): array {
+    if (empty($keys)) return [];
+    $ph   = implode(',', array_fill(0, count($keys), '?'));
+    $rows = Database::fetchAll(
+        "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ({$ph})",
+        $keys
+    );
+    $result = array_fill_keys($keys, '');
+    foreach ($rows as $row) {
+        $result[$row['setting_key']] = $row['setting_value'] ?? '';
+    }
+    foreach ($defaults as $k => $v) {
+        if ($result[$k] === '') $result[$k] = $v;
+    }
+    return $result;
+}
+
 function saveSetting(string $key, string $value, int $userId = 0): void {
     Database::query("
         INSERT INTO settings (setting_key, setting_value, updated_by)

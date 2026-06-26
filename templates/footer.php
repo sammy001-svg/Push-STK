@@ -47,6 +47,25 @@
     }
   });
 })();
+
+// Topbar user dropdown
+function toggleUserMenu() {
+  const dd  = document.getElementById('topbar-dropdown');
+  const chv = document.getElementById('topbar-chevron');
+  if (!dd) return;
+  const open = dd.style.display === 'block';
+  dd.style.display  = open ? 'none' : 'block';
+  if (chv) chv.style.transform = open ? '' : 'rotate(180deg)';
+}
+document.addEventListener('click', function(e) {
+  const btn = document.getElementById('topbar-user-btn');
+  const dd  = document.getElementById('topbar-dropdown');
+  if (btn && dd && !btn.contains(e.target)) {
+    dd.style.display = 'none';
+    const chv = document.getElementById('topbar-chevron');
+    if (chv) chv.style.transform = '';
+  }
+});
 </script>
 </body>
 </html>
