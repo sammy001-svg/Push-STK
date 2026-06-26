@@ -130,11 +130,15 @@ require __DIR__ . '/../templates/header.php';
           $pct      = $c['total_recipients'] > 0 ? round(($c['sent_count']    / $c['total_recipients']) * 100) : 0;
           $succPct  = $c['total_recipients'] > 0 ? round(($c['success_count'] / $c['total_recipients']) * 100) : 0;
           $failPct  = $c['total_recipients'] > 0 ? round(($c['failed_count']  / $c['total_recipients']) * 100) : 0;
-          $awaitPct = max(0, $pct - $succPct - $failPct); // dispatched but callback not yet received
+          $awaitPct = max(0, $pct - $succPct - $failPct);
+          $rowClass = $c['status'] === 'running' ? ' class="row-running"' : '';
           ?>
-          <tr>
+          <tr<?= $rowClass ?>>
             <td>
-              <div style="font-weight:700;font-size:14px;color:var(--primary)"><?= e($c['name']) ?></div>
+              <div style="font-weight:700;font-size:14px;color:var(--primary)">
+                <?php if ($c['status'] === 'running'): ?><span class="live-dot"></span><?php endif; ?>
+                <?= e($c['name']) ?>
+              </div>
               <?php if ($c['description']): ?>
                 <div style="font-size:12px;color:var(--text-muted)"><?= e(mb_strimwidth($c['description'], 0, 60, '…')) ?></div>
               <?php endif; ?>
@@ -157,7 +161,7 @@ require __DIR__ . '/../templates/header.php';
             </td>
             <td style="text-align:center">
               <div style="font-size:20px;font-weight:800;color:var(--primary)"><?= number_format($c['total_recipients']) ?></div>
-              <div style="font-size:11px;color:var(--text-muted)"><?= $c['sent_count'] ?> sent</div>
+              <div style="font-size:11px;color:var(--text-muted)"><?= number_format($c['sent_count']) ?> sent</div>
             </td>
             <td style="min-width:150px">
               <div style="display:flex;gap:6px;margin-bottom:4px;font-size:12px;color:var(--text-muted)">

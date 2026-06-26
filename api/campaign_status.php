@@ -27,6 +27,12 @@ if (!$campaign) {
     jsonResponse(['success' => false, 'message' => 'Campaign not found.']);
 }
 
+// Verify CSRF for all state-changing actions
+$mutatingActions = ['start', 'pause', 'retry', 'set_status', 'cancel_schedule'];
+if (in_array($action, $mutatingActions)) {
+    verifyCsrf();
+}
+
 switch ($action) {
 
     case 'cancel_schedule':

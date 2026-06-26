@@ -206,21 +206,30 @@ const BulkSender = {
       const el = document.getElementById(id);
       if (el) el.textContent = val ?? 0;
     };
-    safe('stat-sent',      data.sent_count);
-    safe('stat-success',   data.success_count);
-    safe('stat-failed',    data.failed_count);
-    safe('stat-pending',   data.pending_count);
+    safe('stat-sent',    data.sent_count);
+    safe('stat-success', data.success_count);
+    safe('stat-failed',  data.failed_count);
+    safe('stat-pending', data.pending_count);
 
-    const pct = data.total > 0 ? Math.round((data.sent_count / data.total) * 100) : 0;
-    const bar = document.getElementById('main-progress-bar');
-    if (bar) {
-      bar.style.width = pct + '%';
-      bar.textContent = pct + '%';
-    }
+    const total    = data.total || 0;
+    const sent     = data.sent_count    || 0;
+    const success  = data.success_count || 0;
+    const failed   = data.failed_count  || 0;
+    const awaiting = Math.max(0, sent - success - failed);
+
+    const pct        = total > 0 ? Math.round(sent    / total * 100) : 0;
+    const succPct    = total > 0 ? Math.round(success / total * 100) : 0;
+    const failPct    = total > 0 ? Math.round(failed  / total * 100) : 0;
+    const awaitPct   = Math.max(0, pct - succPct - failPct);
+
+    const setW = (id, w) => { const el = document.getElementById(id); if (el) el.style.width = w + '%'; };
+    setW('bar-success',  succPct);
+    setW('bar-failed',   failPct);
+    setW('bar-awaiting', awaitPct);
+
     const pctEl = document.getElementById('progress-pct');
     if (pctEl) pctEl.textContent = pct + '%';
 
-    // Recent transactions list
     if (data.recent && data.recent.length) {
       this.appendRecentTx(data.recent);
     }
@@ -271,6 +280,14 @@ const BulkSender = {
 
     const labels = { running: 'Running…', paused: 'Paused', completed: 'Completed', idle: 'Ready' };
     if (statusEl) statusEl.textContent = labels[state] || state;
+
+    // Remove shimmer when no longer actively sending
+    if (state !== 'running') {
+      const bar = document.getElementById('bar-success');
+      if (bar) bar.classList.remove('progress-bar-sending');
+      const dot = document.querySelector('.live-dot');
+      if (dot) dot.style.display = 'none';
+    }
   },
 
   onComplete(data) {

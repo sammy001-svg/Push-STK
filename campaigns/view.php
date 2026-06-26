@@ -38,8 +38,13 @@ $recipients = Database::fetchAll("
 ", $rParams);
 $rPages = (int)ceil($rTotal / $rPer);
 
-$pct     = $campaign['total_recipients'] > 0 ? round(($campaign['sent_count'] / $campaign['total_recipients']) * 100) : 0;
-$succPct = $campaign['total_recipients'] > 0 ? round(($campaign['success_count'] / $campaign['total_recipients']) * 100, 1) : 0;
+$pct        = $campaign['total_recipients'] > 0 ? round(($campaign['sent_count']    / $campaign['total_recipients']) * 100)   : 0;
+$succPct    = $campaign['total_recipients'] > 0 ? round(($campaign['success_count'] / $campaign['total_recipients']) * 100, 1) : 0;
+$isRunning  = $campaign['status'] === 'running';
+
+$succBarPct  = $campaign['total_recipients'] > 0 ? round($campaign['success_count'] / $campaign['total_recipients'] * 100) : 0;
+$failBarPct  = $campaign['total_recipients'] > 0 ? round($campaign['failed_count']  / $campaign['total_recipients'] * 100) : 0;
+$awaitBarPct = max(0, $pct - $succBarPct - $failBarPct);
 
 // Per-status counts for recovery panel
 $retryCounts = Database::fetchOne("
@@ -185,15 +190,31 @@ require __DIR__ . '/../templates/header.php';
   <!-- Progress -->
   <div class="card">
     <div class="card-header">
-      <div class="card-title"><i class="fas fa-tasks"></i> Send Progress</div>
-      <span style="font-size:20px;font-weight:800;color:var(--primary)" id="progress-pct"><?= $pct ?>%</span>
+      <div class="card-title">
+        <i class="fas fa-tasks"></i> Send Progress
+        <?php if ($isRunning ?? false): ?>
+          <span class="live-dot" style="margin-left:4px"></span>
+        <?php endif; ?>
+      </div>
     </div>
     <div class="card-body">
       <div class="progress progress-lg mb-3" style="height:22px;border-radius:12px">
-        <div id="main-progress-bar" class="progress-bar bg-success"
-             style="width:<?= $pct ?>%;border-radius:12px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center">
-          <?php if ($pct > 8): ?><?= $pct ?>%<?php endif; ?>
+        <div class="progress-multi" style="width:100%;height:100%;border-radius:12px">
+          <div id="bar-success" class="seg <?= $isRunning ? 'progress-bar-sending' : '' ?>"
+               style="width:<?= $succBarPct ?>%;background:var(--success)"></div>
+          <div id="bar-failed"  class="seg"
+               style="width:<?= $failBarPct ?>%;background:var(--danger)"></div>
+          <div id="bar-awaiting" class="seg"
+               style="width:<?= $awaitBarPct ?>%;background:var(--primary);opacity:.5"></div>
         </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:-8px;margin-bottom:16px;font-size:12px">
+        <div style="display:flex;gap:14px;color:var(--text-muted)">
+          <span><span style="color:var(--success)">▬</span> Confirmed</span>
+          <span><span style="color:var(--danger)">▬</span> Failed</span>
+          <span><span style="color:var(--primary);opacity:.6">▬</span> Awaiting</span>
+        </div>
+        <span id="progress-pct" style="font-size:14px;font-weight:800;color:var(--primary)"><?= $pct ?>%</span>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
@@ -593,18 +614,14 @@ async function pauseCampaign() {
   if (res.success) Toast.warning('Campaign paused.', 'Paused');
 }
 
-// Override BulkSender progress to also update stat-sent + launch modal
+// Extend BulkSender to also drive the progress card's mini-stats + launch modal
 const origUpdate = BulkSender.updateProgress.bind(BulkSender);
 BulkSender.updateProgress = function(data) {
   origUpdate(data);
-  const el = document.getElementById('stat-sent');
-  if (el) el.textContent = (data.sent_count || 0).toLocaleString();
-  const el2 = document.getElementById('stat-sent-success');
-  if (el2) el2.textContent = (data.success_count || 0).toLocaleString();
-  const el3 = document.getElementById('stat-sent-failed');
-  if (el3) el3.textContent = (data.failed_count || 0).toLocaleString();
-  const el4 = document.getElementById('stat-sent-pending');
-  if (el4) el4.textContent = (data.pending_count || 0).toLocaleString();
+  const s = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v || 0).toLocaleString(); };
+  s('stat-sent-success', data.success_count);
+  s('stat-sent-failed',  data.failed_count);
+  s('stat-sent-pending', data.pending_count);
   updateLaunchModal(data);
 };
 
@@ -765,7 +782,7 @@ async function resendRecipient(recipientId, btn) {
       const row = btn.closest('tr');
       if (row) {
         const statusCell = row.querySelector('td:nth-child(5)');
-        if (statusCell) statusCell.innerHTML = '<span class="badge badge-warning">Sent</span>';
+        if (statusCell) statusCell.innerHTML = '<span class="badge badge-info">Awaiting</span>';
         btn.style.display = 'none';
         // Show "Pending…" instead
         const pendingSpan = document.createElement('span');

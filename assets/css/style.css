@@ -636,7 +636,7 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 
 /* ─── Responsive ────────────────────────────────────────── */
 @media (max-width: 1024px) {
-  .sidebar { transform: translateX(-100%); }
+  .sidebar { transform: translateX(-100%); transition: transform 0.25s ease; }
   .sidebar.open { transform: none; }
   .main-content { margin-left: 0; }
   .grid-4 { grid-template-columns: repeat(2, 1fr); }
@@ -652,4 +652,84 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 @media (max-width: 480px) {
   .campaign-stat-row { grid-template-columns: 1fr 1fr; }
   .topbar { padding: 0 16px; }
+}
+
+/* ─── Sidebar Mobile Overlay ────────────────────────────── */
+#sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 899;
+  -webkit-backdrop-filter: blur(1px);
+  backdrop-filter: blur(1px);
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* ─── Table row running indicator ───────────────────────── */
+tr.row-running td:first-child { position: relative; }
+tr.row-running td:first-child::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--secondary);
+  border-radius: 0 3px 3px 0;
+}
+
+/* ─── Progress bar animated shimmer ────────────────────── */
+@keyframes shimmer {
+  from { transform: translateX(-150%); }
+  to   { transform: translateX(250%); }
+}
+.progress-bar-sending {
+  background: var(--success);
+  position: relative;
+  overflow: hidden;
+}
+.progress-bar-sending::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%);
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* ─── Multi-segment progress bar ────────────────────────── */
+.progress-multi {
+  display: flex;
+  background: #E2E8F0;
+  border-radius: 10px;
+  overflow: hidden;
+  height: 100%;
+}
+.progress-multi .seg {
+  height: 100%;
+  transition: width 0.5s ease;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff;
+  min-width: 0; overflow: hidden;
+}
+
+/* ─── Stat card bottom text alignment ───────────────────── */
+.stat-card { min-height: 90px; }
+
+/* ─── Running badge pulse ───────────────────────────────── */
+@keyframes blink-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.2; }
+}
+.live-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--secondary);
+  animation: blink-dot 1.4s ease-in-out infinite;
+  margin-right: 5px;
+  vertical-align: middle;
 }

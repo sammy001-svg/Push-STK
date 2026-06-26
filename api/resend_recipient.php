@@ -15,6 +15,7 @@ Auth::start();
 if (!Auth::isLoggedIn()) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 401);
 }
+verifyCsrf();
 
 $input       = json_decode(file_get_contents('php://input'), true) ?? [];
 $recipientId = (int)($input['recipient_id'] ?? 0);

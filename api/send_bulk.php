@@ -18,6 +18,7 @@ Auth::start();
 if (!Auth::isLoggedIn()) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 401);
 }
+verifyCsrf();
 session_write_close(); // Release session lock before slow Daraja API calls
 
 $input      = json_decode(file_get_contents('php://input'), true) ?? [];

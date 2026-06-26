@@ -67,12 +67,15 @@ function formatPhone(string $phone): string {
 }
 
 function timeAgo(string $datetime): string {
-    $time = time() - strtotime($datetime);
-    if ($time < 60)     return 'Just now';
+    $ts = strtotime($datetime);
+    if (!$ts) return '—';
+    $time = time() - $ts;
+    if ($time < 5)      return 'Just now';
+    if ($time < 60)     return $time . 's ago';
     if ($time < 3600)   return (int)($time/60)  . ' min ago';
     if ($time < 86400)  return (int)($time/3600) . ' hrs ago';
     if ($time < 604800) return (int)($time/86400) . ' days ago';
-    return date('d M Y', strtotime($datetime));
+    return date('d M Y', $ts);
 }
 
 function progressPercent(int $sent, int $total): float {
@@ -83,6 +86,7 @@ function statusBadge(string $status): string {
     $map = [
         'pending'    => ['badge-warning',  'Pending'],
         'processing' => ['badge-info',     'Processing'],
+        'sent'       => ['badge-info',     'Awaiting'],
         'success'    => ['badge-success',  'Success'],
         'failed'     => ['badge-danger',   'Failed'],
         'timeout'    => ['badge-secondary','Timeout'],
@@ -96,20 +100,6 @@ function statusBadge(string $status): string {
     ];
     [$cls, $label] = $map[$status] ?? ['badge-secondary', ucfirst($status)];
     return "<span class=\"badge {$cls}\">{$label}</span>";
-}
-
-function campaignProgressBar(array $campaign): string {
-    $pct  = progressPercent($campaign['sent_count'], $campaign['total_recipients']);
-    $succ = progressPercent($campaign['success_count'], $campaign['total_recipients']);
-    $fail = progressPercent($campaign['failed_count'], $campaign['total_recipients']);
-    return "
-        <div class='progress-stack' title='{$pct}% sent'>
-            <div class='progress' style='height:10px'>
-                <div class='progress-bar bg-success' style='width:{$succ}%'></div>
-                <div class='progress-bar bg-danger'  style='width:{$fail}%'></div>
-            </div>
-            <small class='text-muted'>{$pct}% complete</small>
-        </div>";
 }
 
 // -------------------------------------------------------

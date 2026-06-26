@@ -6,12 +6,18 @@
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/mpesa.php';
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 
 header('Content-Type: application/json');
 
-session_name('bulkstk_session');
-session_start();
+// Only process when a logged-in user's page heartbeat triggers this.
+// Unauthenticated requests (bots, scanners) get an empty response.
+Auth::start();
+if (!Auth::isLoggedIn()) {
+    echo json_encode(['launched' => [], 'checked_at' => date('Y-m-d H:i:s')]);
+    exit;
+}
 
 // ── 1. Launch due scheduled campaigns ───────────────────────
 $launched = [];

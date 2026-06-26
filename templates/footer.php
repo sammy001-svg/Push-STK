@@ -36,16 +36,39 @@
 <?php if (!empty($extraScripts)) echo $extraScripts; ?>
 
 <script>
-// Show sidebar toggle on mobile
+// Mobile sidebar + overlay
 (function() {
-  const toggle = document.getElementById('sidebar-toggle');
-  if (window.innerWidth <= 1024 && toggle) toggle.style.display = 'flex';
-  window.addEventListener('resize', () => {
-    if (toggle) toggle.style.display = window.innerWidth <= 1024 ? 'flex' : 'none';
-    if (window.innerWidth > 1024) {
-      document.querySelector('.sidebar').classList.remove('open');
+  const toggle  = document.getElementById('sidebar-toggle');
+  const sidebar = document.querySelector('.sidebar');
+
+  // Inject overlay element
+  const overlay = document.createElement('div');
+  overlay.id = 'sidebar-overlay';
+  document.body.appendChild(overlay);
+
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    overlay.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  overlay.addEventListener('click', closeSidebar);
+
+  // Override global toggleSidebar defined in main.js
+  window.toggleSidebar = function() {
+    const isOpen = sidebar.classList.toggle('open');
+    if (window.innerWidth <= 1024) {
+      overlay.style.display = isOpen ? 'block' : 'none';
+      document.body.style.overflow = isOpen ? 'hidden' : '';
     }
-  });
+  };
+
+  const showToggle = () => {
+    if (toggle) toggle.style.display = window.innerWidth <= 1024 ? 'flex' : 'none';
+    if (window.innerWidth > 1024) closeSidebar();
+  };
+  showToggle();
+  window.addEventListener('resize', showToggle);
 })();
 
 // Topbar user dropdown

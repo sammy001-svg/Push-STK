@@ -38,12 +38,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ];
 
     // Validation
-    if (!$data['name'])         $errors[] = 'Campaign name is required.';
-    if (!$data['amount'])       $errors[] = 'Amount is required.';
-    elseif (!is_numeric($data['amount']) || (float)$data['amount'] < 1) $errors[] = 'Amount must be at least KES 1.';
-    if (!$data['account_ref'])  $errors[] = 'Account reference is required.';
-    if (strlen($data['account_ref']) > 12) $errors[] = 'Account reference must be 12 characters or less.';
-    if (strlen($data['transaction_desc']) > 13) $errors[] = 'Transaction description must be 13 characters or less.';
+    if (!$data['name'])   $errors[] = 'Campaign name is required.';
+    if (!$data['amount']) {
+        $errors[] = 'Amount is required.';
+    } elseif (!is_numeric($data['amount']) || (float)$data['amount'] < 1) {
+        $errors[] = 'Amount must be at least KES 1.';
+    } elseif ((float)$data['amount'] > 150000) {
+        $errors[] = 'Amount cannot exceed KES 150,000 (M-Pesa transaction limit).';
+    }
+    if (!$data['account_ref']) {
+        $errors[] = 'Account reference is required.';
+    } elseif (strlen($data['account_ref']) > 12) {
+        $errors[] = 'Account reference must be 12 characters or less.';
+    } elseif (!preg_match('/^[A-Za-z0-9\-_ ]+$/', $data['account_ref'])) {
+        $errors[] = 'Account reference may only contain letters, numbers, hyphens, and spaces.';
+    }
+    if (strlen($data['transaction_desc']) > 13) {
+        $errors[] = 'Transaction description must be 13 characters or less.';
+    } elseif ($data['transaction_desc'] && !preg_match('/^[A-Za-z0-9\-_ ]+$/', $data['transaction_desc'])) {
+        $errors[] = 'Transaction description may only contain letters, numbers, hyphens, and spaces.';
+    }
 
     // Schedule validation
     $scheduledAt = null;
