@@ -408,6 +408,9 @@ $_sortHref = fn($col) => '?' . http_build_query(array_filter(
       <table class="table">
         <thead>
           <tr>
+            <th style="width:36px;text-align:center">
+              <input type="checkbox" id="select-all-cb" title="Select all on this page" style="width:16px;height:16px;cursor:pointer">
+            </th>
             <th>#</th>
             <th>Customer</th>
             <th>Phone</th>
@@ -423,6 +426,11 @@ $_sortHref = fn($col) => '?' . http_build_query(array_filter(
         <tbody>
         <?php foreach ($recipients as $i => $r): ?>
           <tr>
+            <td style="text-align:center">
+              <?php if (in_array($r['status'], ['pending','failed','timeout','cancelled'])): ?>
+                <input type="checkbox" class="row-check" data-id="<?= $r['id'] ?>" data-status="<?= $r['status'] ?>" style="width:16px;height:16px;cursor:pointer">
+              <?php endif; ?>
+            </td>
             <td style="color:var(--text-muted)"><?= $rOffset + $i + 1 ?></td>
             <td>
               <div class="customer-cell">
@@ -474,6 +482,23 @@ $_sortHref = fn($col) => '?' . http_build_query(array_filter(
         <?php endforeach; ?>
         </tbody>
       </table>
+
+      <!-- ─── Bulk action bar ──────────────────────────────────── -->
+      <div id="bulk-bar" style="display:none;position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:1000;
+        background:#0D2B55;color:#fff;border-radius:14px;padding:10px 18px;
+        box-shadow:0 8px 32px rgba(13,43,85,0.45);align-items:center;gap:12px;white-space:nowrap">
+        <span id="bulk-sel-count" style="font-weight:700;font-size:14px">0 selected</span>
+        <div style="flex:1;min-width:12px"></div>
+        <button id="btn-bulk-cancel" class="btn btn-sm" style="background:#DC2626;color:#fff;border:none;display:none" onclick="bulkAction('cancel')">
+          <i class="fas fa-times"></i> Cancel Selected
+        </button>
+        <button id="btn-bulk-resend" class="btn btn-sm" style="background:#00A651;color:#fff;border:none;display:none" onclick="bulkAction('resend')">
+          <i class="fas fa-redo"></i> Resend Selected
+        </button>
+        <button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:none" onclick="clearBulkSelection()">
+          <i class="fas fa-times-circle"></i> Clear
+        </button>
+      </div>
 
       <?php if ($rPages > 1): ?>
         <div style="display:flex;justify-content:center;padding:14px">
@@ -841,7 +866,7 @@ async function resendRecipient(recipientId, btn) {
       // Update the row's status badge in place
       const row = btn.closest('tr');
       if (row) {
-        const statusCell = row.querySelector('td:nth-child(5)');
+        const statusCell = row.querySelector('td:nth-child(6)');
         if (statusCell) statusCell.innerHTML = '<span class="badge badge-info">Awaiting</span>';
         btn.style.display = 'none';
         // Show "Pending…" instead
@@ -877,7 +902,7 @@ async function cancelRecipient(recipientId, btn) {
       Toast.success(res.message || 'Recipient cancelled.', 'Cancelled');
       const row = btn.closest('tr');
       if (row) {
-        const statusCell = row.querySelector('td:nth-child(5)');
+        const statusCell = row.querySelector('td:nth-child(6)');
         if (statusCell) statusCell.innerHTML = '<span class="badge" style="background:#FEE2E2;color:#991B1B">Cancelled</span>';
         btn.style.display = 'none';
       }
@@ -944,6 +969,118 @@ BulkSender.onComplete = function(data) {
 // If page loaded with campaign already completed, no polling needed.
 // If campaign was running when page loaded and BulkSender resumes, poller
 // starts automatically via onComplete.
+
+// ── Bulk Recipient Checkboxes ─────────────────────────────────
+(function initBulkCheckboxes() {
+  const masterCb = document.getElementById('select-all-cb');
+  if (!masterCb) return;
+
+  function getCheckboxes() {
+    return [...document.querySelectorAll('.row-check')];
+  }
+
+  function updateBulkBar() {
+    const checked = document.querySelectorAll('.row-check:checked');
+    const n = checked.length;
+    const bar = document.getElementById('bulk-bar');
+    if (!bar) return;
+
+    if (n === 0) {
+      bar.style.display = 'none';
+      return;
+    }
+    bar.style.display = 'flex';
+    document.getElementById('bulk-sel-count').textContent = n + ' selected';
+
+    let hasPending = false, hasResendable = false;
+    checked.forEach(cb => {
+      if (cb.dataset.status === 'pending') hasPending = true;
+      if (['failed','timeout','cancelled'].includes(cb.dataset.status)) hasResendable = true;
+    });
+    document.getElementById('btn-bulk-cancel').style.display = hasPending    ? '' : 'none';
+    document.getElementById('btn-bulk-resend').style.display = hasResendable ? '' : 'none';
+  }
+
+  masterCb.addEventListener('change', () => {
+    getCheckboxes().forEach(cb => { cb.checked = masterCb.checked; });
+    updateBulkBar();
+  });
+
+  document.querySelectorAll('.row-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const all = getCheckboxes();
+      const checkedCount = all.filter(c => c.checked).length;
+      masterCb.checked       = checkedCount === all.length;
+      masterCb.indeterminate = checkedCount > 0 && checkedCount < all.length;
+      updateBulkBar();
+    });
+  });
+})();
+
+function clearBulkSelection() {
+  document.querySelectorAll('.row-check').forEach(cb => { cb.checked = false; });
+  const masterCb = document.getElementById('select-all-cb');
+  if (masterCb) { masterCb.checked = false; masterCb.indeterminate = false; }
+  const bar = document.getElementById('bulk-bar');
+  if (bar) bar.style.display = 'none';
+}
+
+async function bulkAction(action) {
+  const statusFilter = action === 'cancel' ? ['pending'] : ['failed','timeout','cancelled'];
+  const ids = [...document.querySelectorAll('.row-check:checked')]
+    .filter(cb => statusFilter.includes(cb.dataset.status))
+    .map(cb => parseInt(cb.dataset.id, 10));
+
+  if (!ids.length) return;
+
+  const labels = { cancel: 'cancel', resend: 're-queue' };
+  if (!confirm(`${labels[action] === 'cancel' ? 'Cancel' : 'Re-queue'} ${ids.length} recipient(s)?`)) return;
+
+  const btns = document.querySelectorAll('#bulk-bar button');
+  btns.forEach(b => { b.disabled = true; });
+  const orig = { cancel: document.getElementById('btn-bulk-cancel')?.innerHTML,
+                 resend: document.getElementById('btn-bulk-resend')?.innerHTML };
+  const activeBtn = document.getElementById(action === 'cancel' ? 'btn-bulk-cancel' : 'btn-bulk-resend');
+  if (activeBtn) activeBtn.innerHTML = '<span class="spinner spinner-sm"></span> Working…';
+
+  try {
+    const res = await apiFetch((window.APP_URL || '') + '/api/bulk_recipient_action.php', { action, ids });
+
+    if (res.success) {
+      if (action === 'cancel') {
+        Toast.success(res.message, 'Bulk Cancel');
+        ids.forEach(id => {
+          const cb = document.querySelector(`.row-check[data-id="${id}"]`);
+          if (!cb) return;
+          const row = cb.closest('tr');
+          const statusCell = row?.querySelector('td:nth-child(6)');
+          if (statusCell) statusCell.innerHTML = '<span class="badge" style="background:#FEE2E2;color:#991B1B">Cancelled</span>';
+          row?.querySelector('.cancel-btn')?.remove();
+          cb.checked = false;
+          cb.remove();
+        });
+        // Decrement pending stat
+        const statPending = document.getElementById('stat-pending');
+        if (statPending) {
+          const cur = parseInt(statPending.textContent.replace(/,/g, ''), 10) || 0;
+          statPending.textContent = Math.max(0, cur - (res.cancelled || 0)).toLocaleString();
+        }
+        clearBulkSelection();
+      } else {
+        Toast.success(res.message, 'Bulk Resend');
+        setTimeout(() => location.reload(), 1400);
+      }
+    } else {
+      Toast.error(res.message || 'Action failed.', 'Error');
+      btns.forEach(b => { b.disabled = false; });
+      if (activeBtn && orig[action]) activeBtn.innerHTML = orig[action];
+    }
+  } catch (_) {
+    Toast.error('Network error.', 'Error');
+    btns.forEach(b => { b.disabled = false; });
+    if (activeBtn && orig[action]) activeBtn.innerHTML = orig[action];
+  }
+}
 </script>
 <?php $extraScripts = ob_get_clean(); ?>
 
