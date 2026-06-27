@@ -107,7 +107,8 @@ class Mpesa {
             ],
             CURLOPT_SSL_VERIFYPEER => ($this->env === 'production'),
             CURLOPT_SSL_VERIFYHOST => ($this->env === 'production') ? 2 : 0,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 15,
         ]);
         return $ch;
     }
@@ -190,7 +191,12 @@ class Mpesa {
     // Token generation (cached in file for 55 min)
     // -------------------------------------------------------
     public function getAccessToken(): ?string {
-        $cacheFile = sys_get_temp_dir() . '/mpesa_token_' . md5($this->consumerKey) . '.cache';
+        // Use project storage for the cache — sys_get_temp_dir() is unreliable on shared hosting
+        $cacheDir  = __DIR__ . '/../storage/cache';
+        if (!is_dir($cacheDir)) {
+            @mkdir($cacheDir, 0700, true);
+        }
+        $cacheFile = $cacheDir . '/mpesa_token_' . md5($this->consumerKey) . '.cache';
 
         if (file_exists($cacheFile)) {
             $cached = json_decode(file_get_contents($cacheFile), true);
@@ -206,17 +212,19 @@ class Mpesa {
             CURLOPT_HTTPHEADER     => ['Authorization: Basic ' . $credentials],
             CURLOPT_SSL_VERIFYPEER => ($this->env === 'production'),
             CURLOPT_SSL_VERIFYHOST => ($this->env === 'production') ? 2 : 0,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 10,
         ]);
         $response = curl_exec($ch);
+        unset($ch);
 
         if (!$response) return null;
         $data = json_decode($response, true);
         if (!isset($data['access_token'])) return null;
 
-        file_put_contents($cacheFile, json_encode([
+        @file_put_contents($cacheFile, json_encode([
             'token'      => $data['access_token'],
-            'expires_at' => time() + 3200, // ~53 min
+            'expires_at' => time() + 3200,
         ]));
 
         return $data['access_token'];
@@ -237,7 +245,8 @@ class Mpesa {
             ],
             CURLOPT_SSL_VERIFYPEER => ($this->env === 'production'),
             CURLOPT_SSL_VERIFYHOST => ($this->env === 'production') ? 2 : 0,
-            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 15,
         ]);
         $response = curl_exec($ch);
         $error    = curl_error($ch);

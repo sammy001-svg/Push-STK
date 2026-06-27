@@ -27,9 +27,23 @@ class Database {
     }
 
     public static function query(string $sql, array $params = []): PDOStatement {
-        $stmt = self::getConnection()->prepare($sql);
-        $stmt->execute($params);
-        return $stmt;
+        try {
+            $stmt = self::getConnection()->prepare($sql);
+            $stmt->execute($params);
+            return $stmt;
+        } catch (PDOException $e) {
+            // 2006 = MySQL server has gone away, 2013 = Lost connection during query
+            // Both mean the TCP connection dropped. Reset the singleton and retry once.
+            $code = (int)($e->errorInfo[1] ?? 0);
+            if (in_array($code, [2006, 2013])) {
+                error_log("DB: connection lost ({$code}), reconnecting and retrying.");
+                self::$instance = null;
+                $stmt = self::getConnection()->prepare($sql);
+                $stmt->execute($params);
+                return $stmt;
+            }
+            throw $e;
+        }
     }
 
     public static function fetchOne(string $sql, array $params = []): ?array {

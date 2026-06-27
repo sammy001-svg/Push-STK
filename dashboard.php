@@ -48,6 +48,7 @@ $periodLabels = ['today'=>'Today','7d'=>'Last 7 Days','30d'=>'Last 30 Days','mon
 
 $pageTitle    = 'Dashboard';
 $pageSubtitle = 'Overview &rsaquo; ' . ($periodLabels[$activePeriod] ?? '');
+$extraHead    = '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>';
 require __DIR__ . '/templates/header.php';
 ?>
 

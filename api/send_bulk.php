@@ -10,6 +10,10 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/Mpesa.php';
 
+// Belt-and-suspenders: ini_set() works on PHP-FPM; set_time_limit() covers mod_php.
+// .user.ini (in the project root) is the correct long-term fix for PHP-FPM hosts.
+@ini_set('max_execution_time', '120');
+@ini_set('memory_limit', '256M');
 set_time_limit(120);
 
 header('Content-Type: application/json');
@@ -187,7 +191,6 @@ foreach ($handles as $i => $item) {
     $amount    = (float)$recipient['amount'];
 
     curl_multi_remove_handle($mh, $item['ch']);
-    curl_close($item['ch']);
 
     if ($result['success']) {
         $merchantId   = $result['merchant_request_id'];

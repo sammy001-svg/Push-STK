@@ -279,21 +279,28 @@ function getTopCampaigns(int $limit = 5, string $period = '7d', string $customSt
 }
 
 function getGroupPerformance(): array {
-    return Database::fetchAll("
-        SELECT
-            g.name,
-            g.color,
-            COUNT(DISTINCT cu.id) AS customer_count,
-            COUNT(t.id)          AS tx_count,
-            SUM(t.status='success') AS success_count,
-            COALESCE(SUM(CASE WHEN t.status='success' THEN t.amount ELSE 0 END), 0) AS revenue
-        FROM customer_groups g
-        LEFT JOIN customers cu ON cu.group_name = g.name AND cu.status = 1
-        LEFT JOIN transactions t ON t.customer_id = cu.id
-        GROUP BY g.id
-        ORDER BY revenue DESC
-        LIMIT 6
-    ");
+    try {
+        // Date-bound join prevents a full transactions table scan on every dashboard load.
+        return Database::fetchAll("
+            SELECT
+                g.name,
+                g.color,
+                COUNT(DISTINCT cu.id)                                                      AS customer_count,
+                COUNT(t.id)                                                                AS tx_count,
+                COALESCE(SUM(t.status = 'success'), 0)                                    AS success_count,
+                COALESCE(SUM(CASE WHEN t.status = 'success' THEN t.amount ELSE 0 END), 0) AS revenue
+            FROM customer_groups g
+            LEFT JOIN customers cu ON cu.group_name = g.name AND cu.status = 1
+            LEFT JOIN transactions t
+                   ON t.customer_id = cu.id
+                  AND t.initiated_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+            GROUP BY g.id
+            ORDER BY revenue DESC
+            LIMIT 6
+        ");
+    } catch (Throwable) {
+        return [];
+    }
 }
 
 function getRecentActivity(int $limit = 10): array {
@@ -307,8 +314,15 @@ function getRecentActivity(int $limit = 10): array {
 }
 
 function getRecentTransactions(int $limit = 10): array {
+    // Explicit column list — avoids pulling raw_callback (LONGTEXT) on every row.
     return Database::fetchAll("
-        SELECT t.*, c.name AS customer_name
+        SELECT
+            t.id, t.campaign_id, t.customer_id, t.phone, t.amount,
+            t.account_ref, t.description, t.merchant_request_id,
+            t.checkout_request_id, t.response_code, t.result_code,
+            t.result_description, t.mpesa_receipt, t.transaction_date,
+            t.status, t.initiated_at, t.completed_at,
+            c.name AS customer_name
         FROM transactions t
         LEFT JOIN customers c ON c.id = t.customer_id
         ORDER BY t.initiated_at DESC
