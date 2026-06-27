@@ -126,9 +126,9 @@ const BulkSender = {
   running: false,
   paused: false,
   timer: null,
-  batchDelay: 1200,
+  batchDelay: 400,
 
-  init(campaignId, batchDelay = 1200) {
+  init(campaignId, batchDelay = 400) {
     this.campaignId = campaignId;
     this.batchDelay = batchDelay;
   },

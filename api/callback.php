@@ -104,34 +104,35 @@ try {
     }
 
     if ($recipient && $recipient['campaign_id']) {
-        $cid   = (int)$recipient['campaign_id'];
-        $stats = Database::fetchOne("
-            SELECT
-                SUM(status IN ('sent','success','failed','timeout','cancelled')) AS sent_count,
-                SUM(status = 'success')                                          AS success_count,
-                SUM(status IN ('failed','timeout','cancelled'))                  AS failed_count,
-                SUM(status IN ('pending','processing','sent'))                   AS pending_count,
-                SUM(status = 'cancelled')                                        AS cancelled_count
-            FROM campaign_recipients WHERE campaign_id = ?
-        ", [$cid]);
+        $cid = (int)$recipient['campaign_id'];
 
-        $campaignUpdate = [
-            'sent_count'      => (int)$stats['sent_count'],
-            'success_count'   => (int)$stats['success_count'],
-            'failed_count'    => (int)$stats['failed_count'],
-            'pending_count'   => (int)$stats['pending_count'],
-            'cancelled_count' => (int)$stats['cancelled_count'],
-        ];
-
-        // Auto-complete campaign when nothing is pending/processing/sent
-        $campaign = Database::fetchOne("SELECT status FROM campaigns WHERE id = ?", [$cid]);
-        if ($campaign && (int)$stats['pending_count'] === 0
-                      && in_array($campaign['status'], ['running', 'paused'])) {
-            $campaignUpdate['status']       = 'completed';
-            $campaignUpdate['completed_at'] = date('Y-m-d H:i:s');
+        // Atomic incremental update — avoids a full table scan on every callback
+        if ($status === 'success') {
+            Database::query(
+                "UPDATE campaigns SET success_count = success_count + 1, pending_count = GREATEST(pending_count - 1, 0) WHERE id = ?",
+                [$cid]
+            );
+        } elseif ($status === 'cancelled') {
+            Database::query(
+                "UPDATE campaigns SET cancelled_count = cancelled_count + 1, pending_count = GREATEST(pending_count - 1, 0) WHERE id = ?",
+                [$cid]
+            );
+        } else {
+            Database::query(
+                "UPDATE campaigns SET failed_count = failed_count + 1, pending_count = GREATEST(pending_count - 1, 0) WHERE id = ?",
+                [$cid]
+            );
         }
 
-        Database::update('campaigns', $campaignUpdate, 'id = ?', [$cid]);
+        // Auto-complete if nothing left in-flight
+        $campaign = Database::fetchOne("SELECT status, pending_count FROM campaigns WHERE id = ?", [$cid]);
+        if ($campaign && (int)$campaign['pending_count'] === 0
+                      && in_array($campaign['status'], ['running', 'paused'])) {
+            Database::update('campaigns', [
+                'status'       => 'completed',
+                'completed_at' => date('Y-m-d H:i:s'),
+            ], 'id = ?', [$cid]);
+        }
     }
 
     error_log("[M-Pesa Callback] Processed: checkout={$checkoutReqId} status={$status} receipt={$mpesaReceipt}");

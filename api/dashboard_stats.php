@@ -15,22 +15,30 @@ if (!Auth::isLoggedIn()) {
     jsonResponse(['success' => false, 'message' => 'Unauthorized.'], 401);
 }
 
-$period = in_array($_GET['period'] ?? '', ['today','7d','30d','month']) ? $_GET['period'] : '7d';
+$period      = in_array($_GET['period'] ?? '', ['today','7d','30d','month','custom']) ? $_GET['period'] : '7d';
+$customStart = trim($_GET['start_date'] ?? '');
+$customEnd   = trim($_GET['end_date']   ?? '');
+if ($period === 'custom' && (!$customStart || !$customEnd)) {
+    $period = '7d';
+}
 
-$periodStats = getPeriodStats($period);
-$chartData   = getChartDataPeriod($period);
-$topCampaigns = getTopCampaigns(5, $period);
-$groupPerf   = getGroupPerformance();
+$periodStats  = getPeriodStats($period, $customStart, $customEnd);
+$chartData    = getChartDataPeriod($period, $customStart, $customEnd);
+$topCampaigns = getTopCampaigns(5, $period, $customStart, $customEnd);
+$groupPerf    = getGroupPerformance();
 $cur  = $periodStats['current'];
 $prev = $periodStats['previous'];
 
-// Build trend data
 $trends = [
-    'total'        => trendArrow($cur['total'],   $prev['total']),
-    'success'      => trendArrow($cur['success'], $prev['success']),
-    'revenue'      => trendArrow($cur['revenue'], $prev['revenue']),
+    'total'        => trendArrow($cur['total'],        $prev['total']),
+    'success'      => trendArrow($cur['success'],      $prev['success']),
+    'revenue'      => trendArrow($cur['revenue'],      $prev['revenue']),
     'success_rate' => trendArrow($cur['success_rate'], $prev['success_rate']),
 ];
+
+$hasActive = Database::count(
+    "SELECT COUNT(*) FROM campaigns WHERE status IN ('running','queued')"
+) > 0;
 
 jsonResponse([
     'success'       => true,
@@ -41,4 +49,5 @@ jsonResponse([
     'chart'         => $chartData,
     'top_campaigns' => $topCampaigns,
     'group_perf'    => $groupPerf,
+    'has_active'    => $hasActive,
 ]);

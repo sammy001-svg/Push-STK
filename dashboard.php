@@ -7,15 +7,21 @@ require_once __DIR__ . '/includes/functions.php';
 Auth::start();
 Auth::requireLogin();
 
-$activePeriod = in_array($_GET['period'] ?? '', ['today','7d','30d','month'])
+$activePeriod = in_array($_GET['period'] ?? '', ['today','7d','30d','month','custom'])
     ? $_GET['period'] : '7d';
+$customStart  = trim($_GET['start_date'] ?? '');
+$customEnd    = trim($_GET['end_date']   ?? '');
+if ($activePeriod === 'custom' && (!$customStart || !$customEnd)) {
+    $activePeriod = '7d';
+}
 
-$stats        = getDashboardStats();
-$periodStats  = getPeriodStats($activePeriod);
-$chartData    = getChartDataPeriod($activePeriod);
-$topCampaigns = getTopCampaigns(5, $activePeriod);
-$groupPerf    = getGroupPerformance();
-$recentTx     = getRecentTransactions(8);
+$stats          = getDashboardStats();
+$periodStats    = getPeriodStats($activePeriod, $customStart, $customEnd);
+$chartData      = getChartDataPeriod($activePeriod, $customStart, $customEnd);
+$topCampaigns   = getTopCampaigns(5, $activePeriod, $customStart, $customEnd);
+$groupPerf      = getGroupPerformance();
+$recentTx       = getRecentTransactions(8);
+$recentActivity = getRecentActivity(10);
 
 $cur   = $periodStats['current'];
 $prev  = $periodStats['previous'];
@@ -38,7 +44,7 @@ $scheduledCampaigns = Database::fetchAll("
     LIMIT 5
 ");
 
-$periodLabels = ['today'=>'Today','7d'=>'Last 7 Days','30d'=>'Last 30 Days','month'=>'This Month'];
+$periodLabels = ['today'=>'Today','7d'=>'Last 7 Days','30d'=>'Last 30 Days','month'=>'This Month','custom'=>'Custom Range'];
 
 $pageTitle    = 'Dashboard';
 $pageSubtitle = 'Overview &rsaquo; ' . ($periodLabels[$activePeriod] ?? '');
@@ -46,21 +52,51 @@ require __DIR__ . '/templates/header.php';
 ?>
 
 <!-- ─── Period Picker ─────────────────────────────────────── -->
-<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
   <div>
-    <h2 style="margin:0;font-size:22px;color:var(--primary)">Analytics Overview</h2>
+    <h2 style="margin:0;font-size:22px;color:var(--primary);display:flex;align-items:center;gap:10px">
+      Analytics Overview
+      <span id="live-indicator" style="display:<?= $stats['active_campaigns'] > 0 ? 'flex' : 'none' ?>;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--success)">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;animation:pulse 2s infinite"></span>
+        Live
+      </span>
+    </h2>
     <div style="font-size:13px;color:var(--text-muted);margin-top:2px" id="period-label">
-      <?= $periodLabels[$activePeriod] ?>
-      vs previous period
+      <?php
+        if ($activePeriod === 'custom' && $customStart && $customEnd) {
+            echo e($customStart) . ' to ' . e($customEnd);
+        } else {
+            echo ($periodLabels[$activePeriod] ?? '');
+        }
+      ?> vs previous period
     </div>
   </div>
-  <div class="period-picker" style="display:flex;gap:6px;background:var(--bg);padding:5px;border-radius:10px;border:1px solid var(--border)">
-    <?php foreach (['today'=>'Today','7d'=>'7 Days','30d'=>'30 Days','month'=>'Month'] as $p => $lbl): ?>
-      <button class="period-btn <?= $activePeriod === $p ? 'active' : '' ?>"
-              onclick="setPeriod('<?= $p ?>')" data-period="<?= $p ?>">
-        <?= $lbl ?>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+    <div class="period-picker" style="display:flex;gap:6px;background:var(--bg);padding:5px;border-radius:10px;border:1px solid var(--border)">
+      <?php foreach (['today'=>'Today','7d'=>'7 Days','30d'=>'30 Days','month'=>'Month'] as $p => $lbl): ?>
+        <button class="period-btn <?= $activePeriod === $p ? 'active' : '' ?>"
+                onclick="setPeriod('<?= $p ?>')" data-period="<?= $p ?>">
+          <?= $lbl ?>
+        </button>
+      <?php endforeach; ?>
+      <button class="period-btn <?= $activePeriod === 'custom' ? 'active' : '' ?>"
+              onclick="toggleCustomRange()" data-period="custom">
+        <i class="fas fa-calendar-alt"></i> Custom
       </button>
-    <?php endforeach; ?>
+    </div>
+    <!-- Custom date range inputs -->
+    <div id="custom-range" style="display:<?= $activePeriod === 'custom' ? 'flex' : 'none' ?>;gap:8px;align-items:center">
+      <input type="date" id="custom-start"
+             value="<?= e($customStart ?: date('Y-m-d', strtotime('-6 days'))) ?>"
+             max="<?= date('Y-m-d') ?>"
+             style="border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;font-size:13px"/>
+      <span style="color:var(--text-muted);font-size:13px">to</span>
+      <input type="date" id="custom-end"
+             value="<?= e($customEnd ?: date('Y-m-d')) ?>"
+             max="<?= date('Y-m-d') ?>"
+             style="border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;font-size:13px"/>
+      <button class="btn btn-primary btn-sm" onclick="applyCustomRange()">Apply</button>
+    </div>
   </div>
 </div>
 
@@ -458,6 +494,58 @@ require __DIR__ . '/templates/header.php';
   </div>
 </div>
 
+<!-- ─── Recent Activity ────────────────────────────────────── -->
+<div class="card mb-3">
+  <div class="card-header">
+    <div class="card-title"><i class="fas fa-history" style="color:var(--primary)"></i> Recent Activity</div>
+    <span style="font-size:12px;color:var(--text-muted)">Last 10 actions</span>
+  </div>
+  <?php if (empty($recentActivity)): ?>
+    <div class="empty-state" style="padding:30px">
+      <div class="empty-icon"><i class="fas fa-history"></i></div>
+      <h3>No activity yet</h3>
+    </div>
+  <?php else: ?>
+    <?php
+    $actionMap = [
+      'campaign_delete'      => ['Deleted campaign',       'fa-trash',          '#DC2626'],
+      'campaign_auto_launch' => ['Campaign auto-launched', 'fa-calendar-check', '#6D28D9'],
+      'recipient_cancel'     => ['Cancelled recipient',    'fa-times-circle',   '#F59E0B'],
+      'recipient_resend'     => ['Resent STK push',        'fa-redo',           '#0EA5E9'],
+      'bulk_import'          => ['Imported customers',     'fa-file-import',    '#00A651'],
+    ];
+    ?>
+    <div class="table-wrapper">
+      <table class="table">
+        <tbody>
+        <?php foreach ($recentActivity as $log): ?>
+          <?php [$alabel, $aicon, $acolor] = $actionMap[$log['action']] ?? [ucwords(str_replace('_', ' ', $log['action'])), 'fa-circle', '#64748B']; ?>
+          <tr>
+            <td style="width:44px;padding:10px 6px 10px 16px">
+              <div style="width:32px;height:32px;border-radius:50%;background:<?= $acolor ?>1A;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="fas <?= $aicon ?>" style="font-size:12px;color:<?= $acolor ?>"></i>
+              </div>
+            </td>
+            <td style="padding:10px 8px">
+              <div style="font-size:13px;font-weight:600"><?= $alabel ?></div>
+              <?php if ($log['details']): ?>
+                <div style="font-size:12px;color:var(--text-muted)"><?= e(mb_strimwidth($log['details'], 0, 90, '…')) ?></div>
+              <?php endif; ?>
+            </td>
+            <td style="padding:10px 8px;font-size:12px;color:var(--text-muted);white-space:nowrap">
+              <?= e($log['user_name'] ?? 'System') ?>
+            </td>
+            <td style="padding:10px 16px 10px 8px;font-size:12px;color:var(--text-muted);white-space:nowrap;text-align:right">
+              <?= timeAgo($log['created_at']) ?>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
+</div>
+
 <!-- ─── Styles ────────────────────────────────────────────── -->
 <style>
 .period-btn {
@@ -493,9 +581,13 @@ require __DIR__ . '/templates/header.php';
 </style>
 
 <script>
-const APP_URL = '<?= APP_URL ?>';
+const APP_URL    = '<?= APP_URL ?>';
 let txChart, rateChart;
 let activePeriod = '<?= $activePeriod ?>';
+let customStart  = '<?= e($customStart) ?>';
+let customEnd    = '<?= e($customEnd) ?>';
+let liveTimer    = null;
+const hasActive  = <?= $stats['active_campaigns'] > 0 ? 'true' : 'false' ?>;
 
 // ── Build/rebuild charts ───────────────────────────────────
 function buildCharts(chart) {
@@ -504,7 +596,6 @@ function buildCharts(chart) {
   const failed  = chart.failed;
   const pending = chart.pending;
 
-  // Compute daily success rate; null when no data to avoid a misleading 0% point
   const succRate = labels.map((_, i) => {
     const tot = (success[i] || 0) + (failed[i] || 0) + (pending[i] || 0);
     return tot > 0 ? Math.round((success[i] || 0) / tot * 1000) / 10 : null;
@@ -521,19 +612,9 @@ function buildCharts(chart) {
         { label:'Failed',  data:failed,  backgroundColor:'rgba(220,38,38,0.75)',  borderRadius:4, borderSkipped:false, yAxisID:'count' },
         { label:'Pending', data:pending, backgroundColor:'rgba(245,158,11,0.65)', borderRadius:4, borderSkipped:false, yAxisID:'count' },
         {
-          label: 'Success Rate %',
-          data: succRate,
-          type: 'line',
-          yAxisID: 'rate',
-          borderColor: '#6366F1',
-          backgroundColor: 'rgba(99,102,241,0.08)',
-          borderWidth: 2,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-          fill: true,
-          tension: 0.35,
-          spanGaps: true,
-          order: 0,
+          label:'Success Rate %', data:succRate, type:'line', yAxisID:'rate',
+          borderColor:'#6366F1', backgroundColor:'rgba(99,102,241,0.08)',
+          borderWidth:2, pointRadius:3, pointHoverRadius:5, fill:true, tension:0.35, spanGaps:true, order:0,
         },
       ]
     },
@@ -543,16 +624,8 @@ function buildCharts(chart) {
       scales:{
         x:{ stacked:true, grid:{ display:false }, ticks:{ font:{ size:11 }, maxRotation:45 } },
         count:{ stacked:true, grid:{ color:'#F1F5F9' }, ticks:{ font:{ size:11 } }, beginAtZero:true, position:'left' },
-        rate:{
-          position: 'right',
-          beginAtZero: true,
-          max: 100,
-          grid: { drawOnChartArea: false },
-          ticks: {
-            font: { size: 10 },
-            callback: v => v + '%',
-          }
-        }
+        rate:{ position:'right', beginAtZero:true, max:100, grid:{ drawOnChartArea:false },
+               ticks:{ font:{ size:10 }, callback: v => v + '%' } }
       }
     }
   });
@@ -564,48 +637,105 @@ function buildCharts(chart) {
   const curPending = <?= json_encode($cur['pending']) ?>;
   rateChart = new Chart(rCtx, {
     type: 'doughnut',
-    data: {
-      datasets:[{
-        data: [curSuccess, curFailed, curPending],
-        backgroundColor:['#00A651','#DC2626','#F59E0B'],
-        borderWidth:0, hoverOffset:4,
-      }]
-    },
+    data: { datasets:[{ data:[curSuccess,curFailed,curPending], backgroundColor:['#00A651','#DC2626','#F59E0B'], borderWidth:0, hoverOffset:4 }] },
     options:{ cutout:'72%', responsive:true, plugins:{ legend:{ display:false } } }
   });
 }
 
-// ── Period switch via AJAX ─────────────────────────────────
+// ── Custom date range ──────────────────────────────────────
+function toggleCustomRange() {
+  const el = document.getElementById('custom-range');
+  const visible = el.style.display !== 'none';
+  el.style.display = visible ? 'none' : 'flex';
+  if (!visible) {
+    document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === 'custom'));
+  }
+}
+
+function applyCustomRange() {
+  const s = document.getElementById('custom-start').value;
+  const e = document.getElementById('custom-end').value;
+  if (!s || !e) return;
+  if (s > e) { alert('Start date must be on or before end date.'); return; }
+  customStart  = s;
+  customEnd    = e;
+  activePeriod = 'custom';
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === 'custom'));
+  document.getElementById('period-label').textContent = s + ' to ' + e + ' vs previous period';
+  history.replaceState({}, '', '?period=custom&start_date=' + s + '&end_date=' + e);
+  loadPeriodData();
+}
+
+// ── Period switch ──────────────────────────────────────────
 function setPeriod(period) {
+  if (period === 'custom') { toggleCustomRange(); return; }
   activePeriod = period;
-
-  // Update button styles
-  document.querySelectorAll('.period-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.period === period);
-  });
-
+  customStart  = '';
+  customEnd    = '';
+  document.getElementById('custom-range').style.display = 'none';
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.toggle('active', b.dataset.period === period));
   const labels = { today:'Today', '7d':'Last 7 Days', '30d':'Last 30 Days', month:'This Month' };
   document.getElementById('period-label').textContent = (labels[period] || period) + ' vs previous period';
+  history.replaceState({}, '', '?period=' + period);
+  loadPeriodData();
+}
 
-  fetch(APP_URL + '/api/dashboard_stats.php?period=' + period, { credentials:'same-origin' })
-    .then(r => r.json())
-    .then(d => {
-      if (!d.success) return;
-      const s = d.stats, t = d.trends;
+async function loadPeriodData() {
+  const params = new URLSearchParams({ period: activePeriod });
+  if (activePeriod === 'custom' && customStart && customEnd) {
+    params.set('start_date', customStart);
+    params.set('end_date',   customEnd);
+  }
+  try {
+    const r = await fetch(APP_URL + '/api/dashboard_stats.php?' + params, { credentials:'same-origin' });
+    const d = await r.json();
+    if (!d.success) return;
+    const s = d.stats;
+    document.getElementById('kpi-total').textContent   = s.total.toLocaleString();
+    document.getElementById('kpi-rate').textContent    = s.success_rate + '%';
+    document.getElementById('kpi-revenue').textContent = 'KES ' + Math.round(s.revenue).toLocaleString();
+    document.getElementById('donut-pct').textContent   = s.success_rate + '%';
+    buildCharts(d.chart);
+  } catch (e) {}
+}
 
-      // Update KPI cards
-      document.getElementById('kpi-total').textContent   = s.total.toLocaleString();
-      document.getElementById('kpi-rate').textContent    = s.success_rate + '%';
-      document.getElementById('kpi-revenue').textContent = 'KES ' + Math.round(s.revenue).toLocaleString();
-      document.getElementById('donut-pct').textContent   = s.success_rate + '%';
+// ── Live KPI auto-refresh ──────────────────────────────────
+function startLiveRefresh() {
+  if (liveTimer) return;
+  document.getElementById('live-indicator').style.display = 'flex';
+  liveTimer = setInterval(refreshKpis, 30000);
+}
 
-      // Rebuild chart
-      buildCharts(d.chart);
+function stopLiveRefresh() {
+  clearInterval(liveTimer);
+  liveTimer = null;
+  document.getElementById('live-indicator').style.display = 'none';
+}
 
-      // Update URL without reload
-      history.replaceState({}, '', '?period=' + period);
-    })
-    .catch(() => {});
+async function refreshKpis() {
+  const params = new URLSearchParams({ period: activePeriod });
+  if (activePeriod === 'custom' && customStart && customEnd) {
+    params.set('start_date', customStart);
+    params.set('end_date',   customEnd);
+  }
+  try {
+    const r = await fetch(APP_URL + '/api/dashboard_stats.php?' + params, { credentials:'same-origin' });
+    const d = await r.json();
+    if (!d.success) return;
+    const s = d.stats;
+    flashUpdate('kpi-total',   s.total.toLocaleString());
+    flashUpdate('kpi-rate',    s.success_rate + '%');
+    flashUpdate('kpi-revenue', 'KES ' + Math.round(s.revenue).toLocaleString());
+    document.getElementById('donut-pct').textContent = s.success_rate + '%';
+    if (!d.has_active) stopLiveRefresh();
+  } catch (e) {}
+}
+
+function flashUpdate(id, newVal) {
+  const el = document.getElementById(id);
+  if (!el || el.textContent === newVal) return;
+  el.textContent = newVal;
+  el.animate([{ color:'var(--secondary)' }, { color:'' }], { duration:800, easing:'ease-out' });
 }
 
 // ── Countdown tickers ─────────────────────────────────────
@@ -616,7 +746,7 @@ function setPeriod(period) {
       if (diff <= 0) { el.textContent = 'launching…'; return; }
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000)   / 1000);
+      const s = Math.floor((diff % 60000) / 1000);
       el.textContent = (h ? h + 'h ' : '') + m + 'm ' + s + 's';
     });
   }
@@ -624,9 +754,10 @@ function setPeriod(period) {
   setInterval(tickAll, 1000);
 })();
 
-// ── Initial chart render ───────────────────────────────────
+// ── Init ───────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   buildCharts(<?= json_encode($chartData) ?>);
+  if (hasActive) startLiveRefresh();
 });
 </script>
 

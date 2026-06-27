@@ -74,6 +74,67 @@ class Mpesa {
         return ['success' => false, 'message' => $errMsg, 'raw' => $response];
     }
 
+    /**
+     * Build a configured cURL handle for an STK push without executing it.
+     * Used by send_bulk.php for parallel multi-curl dispatch.
+     */
+    public function buildStkPushHandle(string $phone, float $amount, string $accountRef, string $description, string $token): \CurlHandle|false {
+        $phone     = self::formatPhone($phone);
+        $amount    = (int) ceil($amount);
+        $timestamp = date('YmdHis');
+        $password  = base64_encode($this->shortcode . $this->passkey . $timestamp);
+
+        $ch = curl_init($this->baseUrl . '/mpesa/stkpush/v1/processrequest');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode([
+                'BusinessShortCode' => $this->shortcode,
+                'Password'          => $password,
+                'Timestamp'         => $timestamp,
+                'TransactionType'   => 'CustomerPayBillOnline',
+                'Amount'            => $amount,
+                'PartyA'            => $phone,
+                'PartyB'            => $this->shortcode,
+                'PhoneNumber'       => $phone,
+                'CallBackURL'       => $this->callbackUrl,
+                'AccountReference'  => substr($accountRef, 0, 12),
+                'TransactionDesc'   => substr($description, 0, 13),
+            ]),
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Bearer ' . $token,
+                'Content-Type: application/json',
+            ],
+            CURLOPT_SSL_VERIFYPEER => ($this->env === 'production'),
+            CURLOPT_SSL_VERIFYHOST => ($this->env === 'production') ? 2 : 0,
+            CURLOPT_TIMEOUT        => 30,
+        ]);
+        return $ch;
+    }
+
+    /**
+     * Parse the raw JSON string from a Daraja STK push response.
+     * Returns the same shape as stkPush().
+     */
+    public static function parseStkPushResponse(?string $raw): array {
+        if ($raw === null) {
+            return ['success' => false, 'message' => 'No response from M-Pesa (network error).'];
+        }
+        $response = json_decode($raw, true);
+        if (isset($response['ResponseCode']) && $response['ResponseCode'] === '0') {
+            return [
+                'success'              => true,
+                'merchant_request_id'  => $response['MerchantRequestID'],
+                'checkout_request_id'  => $response['CheckoutRequestID'],
+                'response_code'        => $response['ResponseCode'],
+                'response_description' => $response['ResponseDescription'],
+                'customer_message'     => $response['CustomerMessage'],
+            ];
+        }
+        $errMsg = $response['errorMessage'] ?? $response['ResponseDescription'] ?? 'STK push request failed.';
+        return ['success' => false, 'message' => $errMsg, 'raw' => $response];
+    }
+
     public function querySTKStatus(string $checkoutRequestId): array {
         $token     = $this->getAccessToken();
         $timestamp = date('YmdHis');

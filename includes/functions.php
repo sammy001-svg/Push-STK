@@ -127,8 +127,8 @@ function getDashboardStats(): array {
  * Returns stats + previous-period comparison for the period picker.
  * $period: today | 7d | 30d | month
  */
-function getPeriodStats(string $period = '7d'): array {
-    [$start, $end, $prevStart, $prevEnd] = periodDates($period);
+function getPeriodStats(string $period = '7d', string $customStart = '', string $customEnd = ''): array {
+    [$start, $end, $prevStart, $prevEnd] = periodDates($period, $customStart, $customEnd);
 
     $cur  = periodQuery($start, $end);
     $prev = periodQuery($prevStart, $prevEnd);
@@ -139,7 +139,16 @@ function getPeriodStats(string $period = '7d'): array {
     return ['current' => $cur, 'previous' => $prev, 'start' => $start, 'end' => $end];
 }
 
-function periodDates(string $period): array {
+function periodDates(string $period, string $customStart = '', string $customEnd = ''): array {
+    if ($period === 'custom' && $customStart && $customEnd) {
+        $s = date('Y-m-d 00:00:00', strtotime($customStart));
+        $e = date('Y-m-d 23:59:59', strtotime($customEnd));
+        // Previous period = same length, immediately before
+        $diffSecs = max(86400, strtotime(substr($e, 0, 10)) - strtotime(substr($s, 0, 10)));
+        $ps = date('Y-m-d 00:00:00', strtotime(substr($s, 0, 10)) - $diffSecs);
+        $pe = date('Y-m-d 23:59:59', strtotime(substr($s, 0, 10)) - 86400);
+        return [$s, $e, $ps, $pe];
+    }
     switch ($period) {
         case 'today':
             $s = date('Y-m-d 00:00:00'); $e = date('Y-m-d 23:59:59');
@@ -192,8 +201,8 @@ function trendArrow(float $cur, float $prev): array {
     return ['pct' => abs($pct), 'dir' => $pct > 0 ? 'up' : ($pct < 0 ? 'down' : 'neutral')];
 }
 
-function getChartDataPeriod(string $period = '7d'): array {
-    [$start, $end] = periodDates($period);
+function getChartDataPeriod(string $period = '7d', string $customStart = '', string $customEnd = ''): array {
+    [$start, $end] = periodDates($period, $customStart, $customEnd);
 
     // For 'today' show hourly buckets, otherwise daily
     if ($period === 'today') {
@@ -248,8 +257,8 @@ function getChartDataPeriod(string $period = '7d'): array {
     return compact('labels', 'success', 'failed', 'pending');
 }
 
-function getTopCampaigns(int $limit = 5, string $period = '7d'): array {
-    [$start, $end] = periodDates($period);
+function getTopCampaigns(int $limit = 5, string $period = '7d', string $customStart = '', string $customEnd = ''): array {
+    [$start, $end] = periodDates($period, $customStart, $customEnd);
     return Database::fetchAll("
         SELECT
             c.id, c.name, c.amount,
@@ -285,6 +294,16 @@ function getGroupPerformance(): array {
         ORDER BY revenue DESC
         LIMIT 6
     ");
+}
+
+function getRecentActivity(int $limit = 10): array {
+    return Database::fetchAll("
+        SELECT al.*, u.name AS user_name
+        FROM activity_logs al
+        LEFT JOIN admin_users u ON u.id = al.user_id
+        ORDER BY al.created_at DESC
+        LIMIT ?
+    ", [$limit]);
 }
 
 function getRecentTransactions(int $limit = 10): array {

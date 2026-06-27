@@ -16,24 +16,38 @@ if (!$campaign) {
     redirect(APP_URL . '/campaigns/index.php');
 }
 
-// Recipients with pagination
-$rPage   = max(1, (int)($_GET['rp'] ?? 1));
-$rPer    = 20;
-$rOffset = ($rPage - 1) * $rPer;
-$rStatus = $_GET['rs'] ?? '';
+// Recipients with pagination + search + sort
+$rPage    = max(1, (int)($_GET['rp'] ?? 1));
+$rPer     = 20;
+$rStatus  = $_GET['rs'] ?? '';
+$rSearch  = trim($_GET['rq'] ?? '');
+
+$rSortAllow = ['status' => 'cr.status', 'completed_at' => 'cr.completed_at', 'retry_count' => 'cr.retry_count'];
+$rSortKey   = array_key_exists($_GET['rsort'] ?? '', $rSortAllow) ? ($_GET['rsort'] ?? '') : '';
+$rSort      = $rSortKey ? $rSortAllow[$rSortKey] : 'cr.id';
+$rDir       = strtoupper($_GET['rdir'] ?? '') === 'DESC' ? 'DESC' : 'ASC';
 
 $rWhere  = ['cr.campaign_id = ?'];
 $rParams = [$id];
 if ($rStatus) { $rWhere[] = 'cr.status = ?'; $rParams[] = $rStatus; }
+if ($rSearch) {
+    $rWhere[]  = '(c.name LIKE ? OR cr.phone LIKE ?)';
+    $rParams[] = '%' . $rSearch . '%';
+    $rParams[] = '%' . $rSearch . '%';
+}
 $rWhereStr = implode(' AND ', $rWhere);
+$rOffset   = ($rPage - 1) * $rPer;
 
-$rTotal = Database::count("SELECT COUNT(*) FROM campaign_recipients cr WHERE {$rWhereStr}", $rParams);
+$rTotal = Database::count(
+    "SELECT COUNT(*) FROM campaign_recipients cr LEFT JOIN customers c ON c.id = cr.customer_id WHERE {$rWhereStr}",
+    $rParams
+);
 $recipients = Database::fetchAll("
     SELECT cr.*, c.name AS customer_name
     FROM campaign_recipients cr
     LEFT JOIN customers c ON c.id = cr.customer_id
     WHERE {$rWhereStr}
-    ORDER BY cr.id ASC
+    ORDER BY {$rSort} {$rDir}
     LIMIT {$rPer} OFFSET {$rOffset}
 ", $rParams);
 $rPages = (int)ceil($rTotal / $rPer);
@@ -344,17 +358,44 @@ require __DIR__ . '/../templates/header.php';
 <?php endif; ?>
 
 <!-- ─── Recipients Table ──────────────────────────────────── -->
+<?php
+// Precompute base query params (no page/sort) for tab and sort links
+$_rTabBase = array_filter(['id'=>$id,'rq'=>$rSearch,'rsort'=>$rSortKey,'rdir'=>($rDir==='DESC'?'DESC':'')], fn($v)=>$v!=='');
+$_rPagBase = array_filter(['id'=>$id,'rs'=>$rStatus,'rq'=>$rSearch,'rsort'=>$rSortKey,'rdir'=>($rDir==='DESC'?'DESC':'')], fn($v)=>$v!=='');
+$_sortIcon = fn($col) => $rSortKey === $col
+    ? ($rDir === 'ASC'
+        ? '<i class="fas fa-sort-up" style="font-size:10px;margin-left:2px;color:var(--primary)"></i>'
+        : '<i class="fas fa-sort-down" style="font-size:10px;margin-left:2px;color:var(--primary)"></i>')
+    : '<i class="fas fa-sort" style="opacity:.3;font-size:10px;margin-left:2px"></i>';
+$_sortHref = fn($col) => '?' . http_build_query(array_filter(
+    array_merge($_rTabBase, ['rs'=>$rStatus,'rsort'=>$col,'rdir'=>($rSortKey===$col&&$rDir==='ASC'?'DESC':'ASC')]),
+    fn($v)=>$v!==''
+));
+?>
 <div class="card">
-  <div class="card-header">
+  <div class="card-header" style="flex-wrap:wrap;gap:10px">
     <div class="card-title"><i class="fas fa-list-alt"></i> Recipients (<?= number_format($rTotal) ?>)</div>
-    <div style="display:flex;gap:8px;align-items:center">
+    <form method="GET" style="display:flex;gap:6px;align-items:center">
+      <input type="hidden" name="id" value="<?= $id ?>"/>
+      <input type="hidden" name="rs" value="<?= e($rStatus) ?>"/>
+      <?php if ($rSortKey): ?><input type="hidden" name="rsort" value="<?= e($rSortKey) ?>"/><?php endif; ?>
+      <?php if ($rDir === 'DESC'): ?><input type="hidden" name="rdir" value="DESC"/><?php endif; ?>
+      <input type="text" name="rq" value="<?= e($rSearch) ?>" placeholder="Search name or phone…"
+             style="border:1px solid var(--border);border-radius:var(--radius);padding:5px 10px;font-size:13px;width:190px"/>
+      <button type="submit" class="btn btn-sm btn-primary" style="padding:5px 10px"><i class="fas fa-search"></i></button>
+      <?php if ($rSearch): ?>
+        <a href="?<?= http_build_query(array_filter(array_merge($_rTabBase,['rs'=>$rStatus]),fn($v)=>$v!=='')) ?>"
+           class="btn btn-sm btn-light" title="Clear search"><i class="fas fa-times"></i></a>
+      <?php endif; ?>
+    </form>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto">
       <?php
         $tabs = ['' => 'All', 'pending' => 'Pending', 'sent' => 'Sent', 'success' => 'Success', 'failed' => 'Failed'];
         if ((int)$retryCounts['timeout']   > 0) $tabs['timeout']   = 'Timed Out';
         if ((int)$retryCounts['cancelled'] > 0) $tabs['cancelled'] = 'Cancelled';
         foreach ($tabs as $val => $label):
       ?>
-        <a href="?id=<?= $id ?>&rs=<?= $val ?>"
+        <a href="?<?= http_build_query(array_merge($_rTabBase, array_filter(['rs'=>$val],fn($v)=>$v!==''))) ?>"
            class="btn btn-sm <?= $rStatus === $val ? 'btn-primary' : 'btn-light' ?>"><?= $label ?></a>
       <?php endforeach; ?>
     </div>
@@ -371,10 +412,11 @@ require __DIR__ . '/../templates/header.php';
             <th>Customer</th>
             <th>Phone</th>
             <th>Amount</th>
-            <th>Status</th>
+            <th><a href="<?= $_sortHref('status') ?>" style="color:inherit;text-decoration:none">Status <?= $_sortIcon('status') ?></a></th>
             <th>M-Pesa Receipt</th>
             <th>Result</th>
-            <th>Time</th>
+            <th><a href="<?= $_sortHref('completed_at') ?>" style="color:inherit;text-decoration:none">Time <?= $_sortIcon('completed_at') ?></a></th>
+            <th><a href="<?= $_sortHref('retry_count') ?>" style="color:inherit;text-decoration:none">Retries <?= $_sortIcon('retry_count') ?></a></th>
             <th></th>
           </tr>
         </thead>
@@ -404,6 +446,9 @@ require __DIR__ . '/../templates/header.php';
             <td style="font-size:12px;color:var(--text-muted)">
               <?= $r['completed_at'] ? date('H:i:s', strtotime($r['completed_at'])) : ($r['sent_at'] ? date('H:i:s', strtotime($r['sent_at'])) : '—') ?>
             </td>
+            <td style="text-align:center;font-size:13px;color:var(--text-muted)">
+              <?= (int)$r['retry_count'] > 0 ? $r['retry_count'] : '—' ?>
+            </td>
             <td>
               <?php if (in_array($r['status'], ['failed', 'timeout', 'cancelled'])): ?>
                 <button class="btn btn-sm btn-outline-primary resend-btn"
@@ -417,6 +462,12 @@ require __DIR__ . '/../templates/header.php';
                 </button>
               <?php elseif ($r['status'] === 'sent'): ?>
                 <span style="font-size:11px;color:var(--text-muted)">Pending…</span>
+              <?php elseif ($r['status'] === 'pending'): ?>
+                <button class="btn btn-sm btn-outline-danger cancel-btn"
+                        title="Cancel this recipient — they will not receive an STK push"
+                        onclick="cancelRecipient(<?= $r['id'] ?>, this)">
+                  <i class="fas fa-times"></i>
+                </button>
               <?php endif; ?>
             </td>
           </tr>
@@ -428,7 +479,7 @@ require __DIR__ . '/../templates/header.php';
         <div style="display:flex;justify-content:center;padding:14px">
           <div class="pagination">
             <?php for ($i = 1; $i <= min($rPages, 10); $i++): ?>
-              <a href="?id=<?= $id ?>&rp=<?= $i ?>&rs=<?= $rStatus ?>"
+              <a href="?<?= http_build_query(array_merge($_rPagBase, ['rp' => $i])) ?>"
                  class="page-link <?= $i === $rPage ? 'active' : '' ?>"><?= $i ?></a>
             <?php endfor; ?>
           </div>
@@ -801,6 +852,42 @@ async function resendRecipient(recipientId, btn) {
       }
     } else {
       Toast.error(res.message || 'Resend failed.', 'Error');
+      btn.disabled = false;
+      btn.innerHTML = orig;
+    }
+  } catch (e) {
+    Toast.error('Network error.', 'Error');
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+// ── Individual Cancel ─────────────────────────────────────────
+async function cancelRecipient(recipientId, btn) {
+  if (!confirm('Cancel this recipient? They will not receive an STK push.')) return;
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<span class="spinner spinner-sm"></span>';
+
+  try {
+    const res = await apiFetch((window.APP_URL || '') + '/api/cancel_recipient.php', {
+      recipient_id: recipientId,
+    });
+    if (res.success) {
+      Toast.success(res.message || 'Recipient cancelled.', 'Cancelled');
+      const row = btn.closest('tr');
+      if (row) {
+        const statusCell = row.querySelector('td:nth-child(5)');
+        if (statusCell) statusCell.innerHTML = '<span class="badge" style="background:#FEE2E2;color:#991B1B">Cancelled</span>';
+        btn.style.display = 'none';
+      }
+      const statPending = document.getElementById('stat-pending');
+      if (statPending) {
+        const cur = parseInt(statPending.textContent.replace(/,/g, ''), 10) || 0;
+        if (cur > 0) statPending.textContent = (cur - 1).toLocaleString();
+      }
+    } else {
+      Toast.error(res.message || 'Cancel failed.', 'Error');
       btn.disabled = false;
       btn.innerHTML = orig;
     }
