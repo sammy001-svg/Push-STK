@@ -1,6 +1,10 @@
 # Environment / credentials — never commit these
 config/env.php
 
+# PHP-FPM user settings — managed per-server, not in git
+# Copy .user.ini.example to .user.ini on the server and adjust as needed
+.user.ini
+
 # Temp import files
 storage/imports/tmp_*.csv
 
