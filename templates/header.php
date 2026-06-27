@@ -73,6 +73,12 @@ $flashData    = getFlash();
         New Campaign
       </a>
     </div>
+    <div class="nav-item">
+      <a href="<?= APP_URL ?>/campaigns/templates.php" class="nav-link<?= isActive('templates','campaigns') ?>">
+        <span class="nav-icon"><i class="fas fa-layer-group"></i></span>
+        Templates
+      </a>
+    </div>
 
     <div class="nav-section-title">Customers</div>
 
@@ -103,6 +109,12 @@ $flashData    = getFlash();
 
     <div class="nav-section-title">Reports</div>
 
+    <div class="nav-item">
+      <a href="<?= APP_URL ?>/reports/index.php" class="nav-link<?= isActive('index','reports') ?>">
+        <span class="nav-icon"><i class="fas fa-chart-bar"></i></span>
+        Reports Overview
+      </a>
+    </div>
     <div class="nav-item">
       <a href="<?= APP_URL ?>/transactions/index.php" class="nav-link<?= isActive('index','transactions') ?>">
         <span class="nav-icon"><i class="fas fa-receipt"></i></span>

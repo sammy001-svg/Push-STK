@@ -252,8 +252,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$groups       = Database::fetchAll("SELECT g.name AS group_name, COUNT(c.id) AS cnt FROM customer_groups g LEFT JOIN customers c ON c.group_name = g.name AND c.status = 1 GROUP BY g.id ORDER BY g.name");
+$groups         = Database::fetchAll("SELECT g.name AS group_name, COUNT(c.id) AS cnt FROM customer_groups g LEFT JOIN customers c ON c.group_name = g.name AND c.status = 1 GROUP BY g.id ORDER BY g.name");
 $totalCustomers = Database::count("SELECT COUNT(*) FROM customers WHERE status = 1");
+$templates      = Database::fetchAll("SELECT * FROM campaign_templates ORDER BY name ASC");
+
+// Pre-fill from template on GET (only when not already in clone/edit mode)
+$templateId = (int)($_GET['template_id'] ?? 0);
+if ($templateId && !$sourceId && $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $tpl = Database::fetchOne("SELECT * FROM campaign_templates WHERE id = ?", [$templateId]);
+    if ($tpl) {
+        $data['amount']           = $tpl['amount'];
+        $data['account_ref']      = $tpl['account_ref'];
+        $data['transaction_desc'] = $tpl['transaction_desc'];
+        $data['description']      = $tpl['description'] ?? '';
+    }
+}
 
 if ($editMode)       { $pageTitle = 'Edit Campaign';  $pageSubtitle = 'Campaigns &rsaquo; Edit'; }
 elseif ($cloneMode)  { $pageTitle = 'Clone Campaign'; $pageSubtitle = 'Campaigns &rsaquo; Clone'; }
@@ -292,6 +305,30 @@ require __DIR__ . '/../templates/header.php';
   <?php if ($editMode): ?>
     <input type="hidden" name="edit_id" value="<?= $editId ?>"/>
   <?php endif; ?>
+  <?php if (!empty($templates) && !$editMode): ?>
+  <!-- ─── Template Picker ───────────────────────────────────── -->
+  <div class="card mb-3" style="padding:14px 20px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:600;color:var(--text-muted);white-space:nowrap">
+        <i class="fas fa-layer-group" style="color:var(--secondary)"></i> Load template:
+      </span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;flex:1">
+        <?php foreach ($templates as $t): ?>
+          <button type="button"
+                  class="btn btn-sm <?= $templateId === (int)$t['id'] ? 'btn-secondary' : 'btn-light' ?>"
+                  title="KES <?= number_format((float)$t['amount'], 2) ?> · <?= e($t['account_ref']) ?>"
+                  onclick="applyTemplate(<?= htmlspecialchars(json_encode($t), ENT_QUOTES) ?>)">
+            <?= e($t['name']) ?>
+          </button>
+        <?php endforeach; ?>
+      </div>
+      <a href="<?= APP_URL ?>/campaigns/templates.php" class="btn btn-sm btn-light" style="white-space:nowrap">
+        <i class="fas fa-cog"></i> Manage
+      </a>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <div class="grid-2" style="grid-template-columns:1.3fr 1fr;align-items:start">
 
     <!-- Left: Campaign Details -->
@@ -555,6 +592,17 @@ function toggleSchedule(val) {
         String(d.getMinutes()).padStart(2,'0');
     }
   }
+}
+
+function applyTemplate(t) {
+  document.querySelector('[name=amount]').value           = t.amount;
+  document.querySelector('[name=account_ref]').value      = t.account_ref;
+  document.querySelector('[name=transaction_desc]').value = t.transaction_desc;
+  if (!document.querySelector('[name=name]').value) {
+    document.querySelector('[name=name]').value = t.name;
+  }
+  updatePreview();
+  Toast.info('Template "' + t.name + '" applied.', 'Template');
 }
 
 // Init

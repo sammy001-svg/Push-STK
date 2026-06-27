@@ -176,6 +176,10 @@ require __DIR__ . '/../templates/header.php';
            title="Duplicate this campaign's settings into a new draft">
           <i class="fas fa-copy"></i> Clone
         </a>
+        <button class="btn btn-light btn-lg" onclick="openSaveTemplateModal()"
+                title="Save this campaign's settings as a reusable template">
+          <i class="fas fa-layer-group"></i> Save as Template
+        </button>
       <?php endif; ?>
       <?php if ($retryableCount > 0 && in_array($campaign['status'], ['completed', 'paused', 'draft'])): ?>
         <button class="btn btn-warning btn-lg" onclick="retryFailed()">
@@ -970,6 +974,37 @@ BulkSender.onComplete = function(data) {
 // If campaign was running when page loaded and BulkSender resumes, poller
 // starts automatically via onComplete.
 
+// ── Save as Template ──────────────────────────────────────────
+function openSaveTemplateModal() {
+  Modal.open('save-template-modal');
+  setTimeout(() => document.getElementById('stpl-name').focus(), 80);
+}
+async function saveAsTemplate() {
+  const name = document.getElementById('stpl-name').value.trim();
+  if (!name) { Toast.warning('Template name is required.'); return; }
+  const btn = document.getElementById('stpl-save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner spinner-sm"></span> Saving…';
+  const res = await apiFetch((window.APP_URL || '') + '/api/template_action.php', {
+    action:           'save',
+    name,
+    description:      document.getElementById('stpl-description').value.trim(),
+    amount:           <?= (float)$campaign['amount'] ?>,
+    account_ref:      <?= json_encode($campaign['account_ref']) ?>,
+    transaction_desc: <?= json_encode($campaign['transaction_desc']) ?>,
+  });
+  if (res.success) {
+    Toast.success(res.message, 'Template Saved');
+    Modal.close('save-template-modal');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-save"></i> Save Template';
+  } else {
+    Toast.error(res.message || 'Save failed.', 'Error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-save"></i> Save Template';
+  }
+}
+
 // ── Bulk Recipient Checkboxes ─────────────────────────────────
 (function initBulkCheckboxes() {
   const masterCb = document.getElementById('select-all-cb');
@@ -1082,6 +1117,53 @@ async function bulkAction(action) {
   }
 }
 </script>
+
+<!-- ─── Save as Template Modal ────────────────────────────── -->
+<div class="modal-backdrop" id="save-template-modal" style="display:none">
+  <div class="modal" style="max-width:440px;width:95vw">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-layer-group" style="color:var(--secondary);margin-right:6px"></i>Save as Template</div>
+      <button class="modal-close" onclick="Modal.close('save-template-modal')">×</button>
+    </div>
+    <div class="modal-body" style="padding:24px">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px">
+        Saves <strong>Amount</strong>, <strong>Account Ref</strong>, and <strong>Description</strong>
+        so you can pre-fill future campaigns in one click.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Template Name <span class="required">*</span></label>
+        <input type="text" id="stpl-name" class="form-control"
+               value="<?= e($campaign['name']) ?>" placeholder="e.g. Monthly Loan Repayment" maxlength="200"/>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Notes (optional)</label>
+        <textarea id="stpl-description" class="form-control" rows="2"
+                  placeholder="What is this template for?"><?= e($campaign['description'] ?? '') ?></textarea>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;background:var(--bg);border-radius:8px;padding:14px;margin-top:16px;font-size:13px">
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--text-muted)">Amount</span>
+          <strong>KES <?= number_format((float)$campaign['amount'], 2) ?></strong>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--text-muted)">Account Ref</span>
+          <code style="font-size:12px"><?= e($campaign['account_ref']) ?></code>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--text-muted)">Description</span>
+          <span><?= e($campaign['transaction_desc']) ?></span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-light" onclick="Modal.close('save-template-modal')">Cancel</button>
+      <button class="btn btn-secondary" id="stpl-save-btn" onclick="saveAsTemplate()">
+        <i class="fas fa-save"></i> Save Template
+      </button>
+    </div>
+  </div>
+</div>
+
 <?php $extraScripts = ob_get_clean(); ?>
 
 <?php require __DIR__ . '/../templates/footer.php'; ?>

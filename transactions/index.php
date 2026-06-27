@@ -79,8 +79,16 @@ if (($_GET['export'] ?? '') === 'csv') {
 }
 
 $total    = Database::count("SELECT COUNT(*) FROM transactions t LEFT JOIN customers c ON c.id = t.customer_id WHERE {$whereStr}", $params);
+// Explicit column list — raw_callback is a LONGTEXT column that can be several KB per row.
+// Excluding it from the paginated list cuts fetch time and memory significantly.
 $txList   = Database::fetchAll("
-    SELECT t.*, c.name AS customer_name, camp.name AS campaign_name
+    SELECT
+        t.id, t.campaign_id, t.customer_id, t.phone, t.amount,
+        t.account_ref, t.description, t.merchant_request_id, t.checkout_request_id,
+        t.response_code, t.response_description, t.result_code, t.result_description,
+        t.mpesa_receipt, t.transaction_date, t.status, t.initiated_at, t.completed_at,
+        c.name AS customer_name,
+        camp.name AS campaign_name
     FROM transactions t
     LEFT JOIN customers c    ON c.id    = t.customer_id
     LEFT JOIN campaigns camp ON camp.id = t.campaign_id
