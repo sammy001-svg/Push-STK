@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
                 $skipErrors     = !empty($_POST['skip_errors']);
 
                 // Helper: open CSV, strip BOM, skip header row
-                $openCsv = function(string $path): resource {
+                $openCsv = function(string $path) {
                     $h = fopen($path, 'r');
                     $bom = fread($h, 3);
                     if ($bom !== "\xEF\xBB\xBF") rewind($h);
