@@ -277,7 +277,7 @@ require __DIR__ . '/../templates/header.php';
       <div class="card-title">
         <span class="step-badge">1</span> Upload CSV File
       </div>
-      <span style="font-size:12px;color:var(--text-muted)">Max 5MB &mdash; CSV only</span>
+      <span style="font-size:12px;color:var(--text-muted)">Max 20MB &mdash; CSV only</span>
     </div>
     <div class="card-body">
 
@@ -285,7 +285,7 @@ require __DIR__ . '/../templates/header.php';
       <div class="upload-zone" id="upload-zone" onclick="document.getElementById('csv_file').click()">
         <div class="upload-icon"><i class="fas fa-file-csv" style="font-size:32px;color:var(--secondary)"></i></div>
         <p><strong>Click to browse</strong> or drag &amp; drop your CSV here</p>
-        <p style="font-size:12px;color:var(--text-muted);margin-top:4px">Accepts .csv files up to 5MB</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:4px">Accepts .csv files up to 20MB</p>
         <div id="file-name-display" style="display:none;margin-top:10px;font-weight:600;color:var(--primary);font-size:14px"></div>
       </div>
       <input type="file" id="csv_file" accept=".csv,.txt" style="display:none" onchange="onFileSelected(this)"/>

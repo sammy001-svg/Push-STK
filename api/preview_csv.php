@@ -24,13 +24,13 @@ if (empty($_FILES['csv_file']['tmp_name'])) {
 
 $file    = $_FILES['csv_file'];
 $ext     = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-$maxSize = 5 * 1024 * 1024;
+$maxSize = 20 * 1024 * 1024;
 
 if (!in_array($ext, ['csv', 'txt'])) {
     jsonResponse(['success' => false, 'message' => 'Only CSV files are allowed.']);
 }
 if ($file['size'] > $maxSize) {
-    jsonResponse(['success' => false, 'message' => 'File must not exceed 5MB.']);
+    jsonResponse(['success' => false, 'message' => 'File must not exceed 20MB.']);
 }
 
 $storageDir = __DIR__ . '/../storage/imports';
