@@ -14,6 +14,8 @@ $errorDownloadToken = null;
 
 // ── Step 2: Confirm and execute import ──────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm') {
+    @ini_set('max_execution_time', '300');
+    @ini_set('memory_limit', '256M');
     verifyCsrf();
 
     $token = $_POST['import_token'] ?? '';
@@ -46,41 +48,103 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
                 $updateExisting = !empty($_POST['update_existing']);
                 $skipErrors     = !empty($_POST['skip_errors']);
 
-                $parsed = parseCsvWithMapping($filePath, $mapping);
+                // Helper: open CSV, strip BOM, skip header row
+                $openCsv = function(string $path): resource {
+                    $h = fopen($path, 'r');
+                    $bom = fread($h, 3);
+                    if ($bom !== "\xEF\xBB\xBF") rewind($h);
+                    fgetcsv($h); // skip header
+                    return $h;
+                };
 
-                if (!$skipErrors && !empty($parsed['errors'])) {
-                    $errors = array_merge($errors, array_slice($parsed['errors'], 0, 20));
-                    if (count($parsed['errors']) > 20) {
-                        $errors[] = '… and ' . (count($parsed['errors']) - 20) . ' more row errors.';
+                $parseErrors = [];
+                $errorRows   = [];
+
+                // If "stop on errors" is checked, do a validation-only pass first
+                if (!$skipErrors) {
+                    $h      = $openCsv($filePath);
+                    $lineNo = 1;
+                    while (($data = fgetcsv($h)) !== false) {
+                        $lineNo++;
+                        $data = array_map('trim', $data);
+                        $row  = [];
+                        foreach ($mapping as $field => $colIdx) {
+                            $row[$field] = $data[$colIdx] ?? '';
+                        }
+                        $rowErrs = validateCsvRow($row);
+                        if ($rowErrs) {
+                            $errMsg      = implode('; ', $rowErrs);
+                            $parseErrors[] = "Row {$lineNo}: {$errMsg}";
+                            $errorRows[]   = array_merge(['_row' => $lineNo, '_error' => $errMsg], $row);
+                        }
                     }
-                } else {
-                    $imported = 0; $skipped = 0; $updated = 0; $errorCount = count($parsed['errors']);
+                    fclose($h);
 
-                    // Pre-load all existing phone_formatted → id in one query (avoids N SELECT per row)
+                    if (!empty($parseErrors)) {
+                        $errors = array_merge($errors, array_slice($parseErrors, 0, 20));
+                        if (count($parseErrors) > 20) {
+                            $errors[] = '… and ' . (count($parseErrors) - 20) . ' more row errors.';
+                        }
+                    }
+                }
+
+                if (empty($errors)) {
+                    $imported   = 0;
+                    $skipped    = 0;
+                    $updated    = 0;
+                    $errorCount = 0;
+                    $parseErrors = [];
+                    $errorRows   = [];
+
+                    // Pre-load all existing phone_formatted → id (one query, avoids N lookups)
                     $existingRows = Database::fetchAll("SELECT id, phone_formatted FROM customers");
                     $existingMap  = array_column($existingRows, 'id', 'phone_formatted');
+                    unset($existingRows);
+
+                    $h           = $openCsv($filePath);
+                    $insertBatch = [];
+                    $lineNo      = 1;
 
                     Database::beginTransaction();
                     try {
-                        foreach ($parsed['rows'] as $row) {
+                        while (($data = fgetcsv($h)) !== false) {
+                            $lineNo++;
+                            $data = array_map('trim', $data);
+                            $row  = [];
+                            foreach ($mapping as $field => $colIdx) {
+                                $row[$field] = $data[$colIdx] ?? '';
+                            }
+
+                            $rowErrs = validateCsvRow($row);
+                            if ($rowErrs) {
+                                if ($skipErrors) {
+                                    $errMsg      = implode('; ', $rowErrs);
+                                    $parseErrors[] = "Row {$lineNo}: {$errMsg}";
+                                    $errorRows[]   = array_merge(['_row' => $lineNo, '_error' => $errMsg], $row);
+                                    $errorCount++;
+                                }
+                                continue;
+                            }
+
                             $formatted = Mpesa::formatPhone($row['phone']);
                             $grp       = $groupOverride ?: ($row['group'] ?? null);
 
                             if (isset($existingMap[$formatted])) {
-                                if ($updateExisting) {
+                                $existingId = $existingMap[$formatted];
+                                if ($updateExisting && is_int($existingId)) {
                                     Database::update('customers', [
                                         'name'           => $row['name'],
                                         'email'          => $row['email']          ?: null,
                                         'account_number' => $row['account_number'] ?: null,
                                         'group_name'     => $grp ?: null,
                                         'status'         => 1,
-                                    ], 'id = ?', [$existingMap[$formatted]]);
+                                    ], 'id = ?', [$existingId]);
                                     $updated++;
                                 } else {
                                     $skipped++;
                                 }
                             } else {
-                                Database::insert('customers', [
+                                $insertBatch[] = [
                                     'name'            => $row['name'],
                                     'phone'           => $row['phone'],
                                     'phone_formatted' => $formatted,
@@ -88,10 +152,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
                                     'account_number'  => $row['account_number'] ?: null,
                                     'group_name'      => $grp ?: null,
                                     'status'          => 1,
-                                ]);
-                                $existingMap[$formatted] = true; // guard against duplicates within the same file
-                                $imported++;
+                                ];
+                                $existingMap[$formatted] = true; // intra-file duplicate guard
+                                if (count($insertBatch) === 500) {
+                                    Database::bulkInsert('customers', $insertBatch);
+                                    $imported += 500;
+                                    $insertBatch = [];
+                                }
                             }
+                        }
+                        fclose($h);
+
+                        // Flush remaining batch
+                        if (!empty($insertBatch)) {
+                            Database::bulkInsert('customers', $insertBatch);
+                            $imported += count($insertBatch);
+                            $insertBatch = [];
                         }
 
                         // Log this import
@@ -116,17 +192,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['step'] ?? '') === 'confirm
                             "Imported {$imported}, updated {$updated}, skipped {$skipped} from {$origName}");
 
                         $importResult = compact('imported', 'skipped', 'updated', 'errorCount', 'origName');
-                        $importResult['parse_errors'] = $parsed['errors'];
-                        $importResult['error_rows']   = $parsed['error_rows'] ?? [];
+                        $importResult['parse_errors'] = $parseErrors;
+                        $importResult['error_rows']   = $errorRows;
 
                         // Write downloadable CSV of failed rows
-                        if (!empty($parsed['error_rows'])) {
+                        if (!empty($errorRows)) {
                             $errToken    = bin2hex(random_bytes(16));
                             $errFilePath = __DIR__ . '/../storage/imports/errors_' . $errToken . '.csv';
                             $ef = fopen($errFilePath, 'w');
                             if ($ef) {
                                 fputcsv($ef, ['Row #', 'Name', 'Phone', 'Email', 'Account No.', 'Group', 'Error']);
-                                foreach ($parsed['error_rows'] as $eRow) {
+                                foreach ($errorRows as $eRow) {
                                     fputcsv($ef, [
                                         $eRow['_row']            ?? '',
                                         $eRow['name']            ?? '',
@@ -545,10 +621,22 @@ function uploadFile(file) {
     credentials: 'same-origin',
     body: fd,
   })
-  .then(r => r.json())
-  .then(data => {
+  .then(r => r.text())
+  .then(text => {
     clearInterval(progInterval);
     pbar.style.width = '100%';
+
+    let data;
+    try { data = JSON.parse(text); }
+    catch (e) {
+      // Server returned a PHP error page instead of JSON
+      document.getElementById('upload-progress').style.display = 'none';
+      document.getElementById('upload-zone').style.opacity = '1';
+      alert('Server error while processing the file.\n\nThis usually means the file is too large to process in one go or a timeout occurred. Try splitting your CSV into smaller batches (e.g. 50,000 rows each).');
+      resetUpload();
+      return;
+    }
+
     setTimeout(() => {
       document.getElementById('upload-progress').style.display = 'none';
       document.getElementById('upload-zone').style.opacity = '1';
@@ -564,7 +652,9 @@ function uploadFile(file) {
   })
   .catch(err => {
     clearInterval(progInterval);
-    alert('Upload failed. Please try again.');
+    document.getElementById('upload-progress').style.display = 'none';
+    document.getElementById('upload-zone').style.opacity = '1';
+    alert('Connection lost during upload. Please check your internet connection and try again.');
     resetUpload();
   });
 }

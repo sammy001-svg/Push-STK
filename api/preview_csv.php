@@ -3,7 +3,7 @@
  * CSV Preview Endpoint
  * Accepts a multipart file upload, saves it temporarily,
  * and returns headers + sample rows + auto-detected column mapping.
- * Duplicate check uses a single batch query instead of N per-row queries.
+ * Duplicate check is chunked (500 per query) to avoid oversized IN() clauses.
  */
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/db.php';
@@ -12,6 +12,9 @@ require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/Mpesa.php';
 
 header('Content-Type: application/json');
+@ini_set('max_execution_time', '120');
+@ini_set('memory_limit', '256M');
+
 Auth::start();
 
 if (!Auth::isLoggedIn()) {
@@ -41,10 +44,12 @@ if (!move_uploaded_file($file['tmp_name'], $savedPath)) {
     jsonResponse(['success' => false, 'message' => 'Failed to save uploaded file.']);
 }
 
+try {
+
 // ── Read headers ─────────────────────────────────────────────
 $handle = fopen($savedPath, 'r');
 if (!$handle) {
-    unlink($savedPath);
+    @unlink($savedPath);
     jsonResponse(['success' => false, 'message' => 'Cannot read uploaded file.']);
 }
 
@@ -54,7 +59,7 @@ if ($bom !== "\xEF\xBB\xBF") rewind($handle);
 $rawHeaders = fgetcsv($handle);
 if (!$rawHeaders) {
     fclose($handle);
-    unlink($savedPath);
+    @unlink($savedPath);
     jsonResponse(['success' => false, 'message' => 'CSV has no header row.']);
 }
 $headers = array_map('trim', $rawHeaders);
@@ -77,8 +82,8 @@ $phoneColIdx = $autoMap['phone'] ?? null;
 
 // ── Single pass: collect sample rows + all formatted phones ───
 $sampleRows  = [];
-$allPhones   = [];  // formatted, valid phones from every row
-$invalidRows = 0;   // rows whose phone is absent or malformed
+$allPhones   = [];
+$invalidRows = 0;
 $totalRows   = 0;
 
 while (($row = fgetcsv($handle)) !== false) {
@@ -97,17 +102,19 @@ while (($row = fgetcsv($handle)) !== false) {
 }
 fclose($handle);
 
-// ── Batch duplicate check (one query, not N) ──────────────────
+// ── Chunked duplicate check (500 per query to stay within max_allowed_packet) ──
 $duplicateSet   = [];
 $duplicateCount = 0;
 if (!empty($allPhones)) {
-    $unique       = array_values(array_unique($allPhones));
-    $placeholders = implode(',', array_fill(0, count($unique), '?'));
-    $dbRows       = Database::fetchAll(
-        "SELECT phone_formatted FROM customers WHERE phone_formatted IN ({$placeholders})",
-        $unique
-    );
-    foreach ($dbRows as $r) $duplicateSet[$r['phone_formatted']] = true;
+    $unique = array_values(array_unique($allPhones));
+    foreach (array_chunk($unique, 500) as $chunk) {
+        $ph   = implode(',', array_fill(0, count($chunk), '?'));
+        $rows = Database::fetchAll(
+            "SELECT phone_formatted FROM customers WHERE phone_formatted IN ({$ph})",
+            $chunk
+        );
+        foreach ($rows as $r) $duplicateSet[$r['phone_formatted']] = true;
+    }
     foreach ($allPhones as $p) {
         if (isset($duplicateSet[$p])) $duplicateCount++;
     }
@@ -155,3 +162,9 @@ jsonResponse([
     'valid_new_count' => $validNewCount,
     'invalid_count'   => $invalidRows,
 ]);
+
+} catch (Throwable $e) {
+    @unlink($savedPath ?? '');
+    error_log('preview_csv error: ' . $e->getMessage());
+    jsonResponse(['success' => false, 'message' => 'Processing failed: ' . $e->getMessage()]);
+}
