@@ -61,6 +61,8 @@ if ($sourceCamp && $_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    @ini_set('max_execution_time', '300');
+    @ini_set('memory_limit', '256M');
     verifyCsrf();
     $postEditId = (int)($_POST['edit_id'] ?? 0);
     $editMode   = ($postEditId > 0);
@@ -126,14 +128,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // Resolve recipients
-    $recipientIds = [];
+    // 'all' and 'group' use INSERT INTO…SELECT (one SQL statement — no PHP array for large groups)
+    // 'custom' resolves phones to IDs individually (always a small list)
+    $recCount          = 0;
+    $useInsertSelect   = false;
+    $insertSelectWhere  = '';
+    $insertSelectParams = [];
+    $recipientIds      = [];
 
     if ($data['recipient_type'] === 'all') {
-        $rows = Database::fetchAll("SELECT id FROM customers WHERE status = 1");
-        $recipientIds = array_column($rows, 'id');
+        $recCount           = Database::count("SELECT COUNT(*) FROM customers WHERE status = 1");
+        $useInsertSelect    = true;
+        $insertSelectWhere  = 'status = 1';
+        $insertSelectParams = [];
     } elseif ($data['recipient_type'] === 'group' && $data['group_name']) {
-        $rows = Database::fetchAll("SELECT id FROM customers WHERE group_name = ? AND status = 1", [$data['group_name']]);
-        $recipientIds = array_column($rows, 'id');
+        $recCount           = Database::count("SELECT COUNT(*) FROM customers WHERE group_name = ? AND status = 1", [$data['group_name']]);
+        $useInsertSelect    = true;
+        $insertSelectWhere  = 'group_name = ? AND status = 1';
+        $insertSelectParams = [$data['group_name']];
     } elseif ($data['recipient_type'] === 'custom' && $data['custom_phones']) {
         require_once __DIR__ . '/../includes/Mpesa.php';
         $phones = preg_split('/[\s,;\n]+/', $data['custom_phones'], -1, PREG_SPLIT_NO_EMPTY);
@@ -147,20 +159,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
         $recipientIds = array_unique($recipientIds);
+        $recCount = count($recipientIds);
     }
 
-    if (empty($recipientIds)) {
+    if ($recCount === 0) {
         $errors[] = 'No valid recipients found for the selected criteria.';
-    } elseif (count($recipientIds) > 1000) {
-        // Limit to first 1000 for safety
-        $recipientIds = array_slice($recipientIds, 0, 1000);
     }
 
     if (empty($errors)) {
         Database::beginTransaction();
         try {
-            $amount   = (float)$data['amount'];
-            $recCount = count($recipientIds);
+            $amount = (float)$data['amount'];
 
             if ($editMode) {
                 // ── Update existing draft ─────────────────────────────
@@ -180,21 +189,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Replace recipient list
                 Database::query("DELETE FROM campaign_recipients WHERE campaign_id = ?", [$postEditId]);
 
-                foreach (array_chunk($recipientIds, 500) as $chunk) {
-                    $customers = Database::fetchAll(
-                        "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
+                if ($useInsertSelect) {
+                    Database::query(
+                        "INSERT INTO campaign_recipients (campaign_id, customer_id, phone, amount, status)
+                         SELECT ?, id, phone_formatted, ?, 'pending' FROM customers WHERE {$insertSelectWhere}",
+                        array_merge([$postEditId, $amount], $insertSelectParams)
                     );
-                    $rows = [];
-                    foreach ($customers as $cust) {
-                        $rows[] = [
-                            'campaign_id' => $postEditId,
-                            'customer_id' => $cust['id'],
-                            'phone'       => $cust['phone_formatted'],
-                            'amount'      => $amount,
-                            'status'      => 'pending',
-                        ];
+                } else {
+                    foreach (array_chunk($recipientIds, 500) as $chunk) {
+                        $customers = Database::fetchAll(
+                            "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
+                        );
+                        $rows = [];
+                        foreach ($customers as $cust) {
+                            $rows[] = [
+                                'campaign_id' => $postEditId,
+                                'customer_id' => $cust['id'],
+                                'phone'       => $cust['phone_formatted'],
+                                'amount'      => $amount,
+                                'status'      => 'pending',
+                            ];
+                        }
+                        Database::bulkInsert('campaign_recipients', $rows);
                     }
-                    Database::bulkInsert('campaign_recipients', $rows);
                 }
 
                 Database::commit();
@@ -220,21 +237,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'created_by'       => Auth::userId(),
                 ]);
 
-                foreach (array_chunk($recipientIds, 500) as $chunk) {
-                    $customers = Database::fetchAll(
-                        "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
+                if ($useInsertSelect) {
+                    Database::query(
+                        "INSERT INTO campaign_recipients (campaign_id, customer_id, phone, amount, status)
+                         SELECT ?, id, phone_formatted, ?, 'pending' FROM customers WHERE {$insertSelectWhere}",
+                        array_merge([$campaignId, $amount], $insertSelectParams)
                     );
-                    $rows = [];
-                    foreach ($customers as $cust) {
-                        $rows[] = [
-                            'campaign_id' => $campaignId,
-                            'customer_id' => $cust['id'],
-                            'phone'       => $cust['phone_formatted'],
-                            'amount'      => $amount,
-                            'status'      => 'pending',
-                        ];
+                } else {
+                    foreach (array_chunk($recipientIds, 500) as $chunk) {
+                        $customers = Database::fetchAll(
+                            "SELECT id, phone_formatted FROM customers WHERE id IN (" . implode(',', $chunk) . ")"
+                        );
+                        $rows = [];
+                        foreach ($customers as $cust) {
+                            $rows[] = [
+                                'campaign_id' => $campaignId,
+                                'customer_id' => $cust['id'],
+                                'phone'       => $cust['phone_formatted'],
+                                'amount'      => $amount,
+                                'status'      => 'pending',
+                            ];
+                        }
+                        Database::bulkInsert('campaign_recipients', $rows);
                     }
-                    Database::bulkInsert('campaign_recipients', $rows);
                 }
 
                 Database::commit();
